@@ -1,0 +1,98 @@
+policy_name: meta-llama/Llama-3.2-1B-Instruct
+ref_name: meta-llama/Llama-3.2-1B-Instruct
+precision: bf16
+
+dataset:
+  dataset_name: Anthropic/hh-rlhf
+  generated_data: false
+  chat_template: true
+  subset: train[:30%]
+  eval_subset: null
+  val_ratio: 0.1
+  seed: 42
+  max_len: 512
+  
+dpo_training:
+  epochs: 1
+  batch_size: 16
+  eval_batch_size: 16
+  learning_rate: 5e-7
+  log_steps: 10
+  eval_steps: 500
+  save_steps: 500
+  gradient_accumulation: 4
+  max_grad_norm: 10
+  warmup_steps: 120
+  report: wandb_dpo_project
+  run_name: trl-dynamic-beta
+  save_dpo_dir: dpo_model
+  save_dir: trl_dynamic_beta_dpo
+
+sft_training:
+  learning_rate: 5e-6
+  batch_size: 16
+  eval_batch_size: 16
+  gradient_accumulation: 1
+  epochs: 1
+  log_steps: 10
+  wandb_project: hh-llama32-1b-sft
+  save_steps: 500
+  warmup_steps: 120
+  warmup_ratio: 0.0
+  lr_scheduler_type: linear
+  max_length: 512
+  packing: false
+  completion_only_loss: true
+  save_dir: sft_model
+  save_only_model: True
+  push_to_hub: True
+  hub_model_id: jackf857/hh-llama32-1b-Instruct-sft-30
+
+risk_test:
+  delta: 0.1
+  lambda: 0.1
+  beta_warmup: 120
+
+beta_update:
+  beta_0: 0.1
+  gamma: 2.0
+  alpha: 0.005
+  beta_max: 2.0
+  beta_min: 0.0
+
+margin_log:
+  jsonl_sample_size: 64
+  save_per_rank: False
+  log_dir: logs/margins
+  dpo_log_dir: logs/dpo_margins
+
+rollout:
+  engine: vllm
+  vllm_batch_size: 500
+  gpu_memory_utilization: 0.9
+  model_name: W-61/hh-llama32-1b-sft
+  output_dir: rollout_output
+  upload_repo_id: jackf857/hh-llama32-1b-rollout-judged
+  batch_size: 5
+  responses_per_prompt: 5
+  temperature: 0.8
+  top_p: 0.9
+  max_new_tokens: 256
+  min_new_tokens: 10
+  limit: null
+  device_map: null
+  judge: rm
+  reward_model: RLHFlow/ArmoRM-Llama3-8B-v0.1
+  reward_batch_size: 5
+  reward_judge_batch_size: 5
+  reward_precision: null
+  reward_device_map: null
+  reward_max_length: null
+  reward_quantization: 8bit
+  reward_load_in_8bit: false
+  debug_log_path: null
+  debug_log_all: false
+  debug_log_empty_only: false
+  debug_log_max: null
+  flush_every_batches: 10
+  log_throughput: true
