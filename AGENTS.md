@@ -11,8 +11,10 @@ If this file conflicts with informal notes, this file wins.
   - `src/data/sft_dataset.py`
   - `src/data/hh_dataset.py`
   - `src/cli.py`
+  - `src/config/loader.py`
   - `config_sft.yaml`
   - `config_sft_ultrachat.yaml`
+  - `test/test_sft_pipeline_smoke.py`
 
 ## 2) Hard Constraints
 - MUST NOT perform broad refactors, renames, or file moves unless explicitly requested.
@@ -30,6 +32,8 @@ If this file conflicts with informal notes, this file wins.
   - `false` -> `{"messages": ...}` rows (full-sequence).
   - `true` -> exploded `{"prompt": ..., "completion": ...}` rows (assistant turns).
 - `sft_training.completion_only_loss` is the only supported key for this toggle.
+- SFT trainer prints one train and one eval sample right before `SFTTrainer` construction.
+  - Keep this preview behavior unless explicitly requested to remove it.
 
 ## 4) Configuration Rules
 - Any behavior change must be represented in config, not hardcoded.
@@ -37,6 +41,16 @@ If this file conflicts with informal notes, this file wins.
 - If changing semantics, update both:
   - code path
   - example/default config files (`config_sft.yaml`, `config_sft_ultrachat.yaml`)
+- Current SFT best-checkpoint defaults are config-driven and should remain explicit:
+  - `save_strategy: best`
+  - `load_best_model_at_end: true`
+  - `metric_for_best_model: eval_loss`
+  - `greater_is_better: false`
+  - `save_total_limit: 2`
+- Current FSDP behavior is config-driven under `sft_training.fsdp`:
+  - Keep `gradient_accumulation` as the single accumulation key for both FSDP and non-FSDP.
+  - Keep auto-correction: if `fsdp.enabled=true` and `load_best_model_at_end=true`, force `save_only_model=false`.
+  - `gradient_checkpointing` is allowed with full-shard FSDP in this repo (Transformers may emit a warning).
 
 ## 5) Editing Workflow (Required)
 - First inspect relevant files with targeted search/read.
@@ -44,10 +58,14 @@ If this file conflicts with informal notes, this file wins.
 - Avoid touching unrelated lines/files.
 - Prefer explicit variable names over implicit logic.
 - Keep comments sparse and only for non-obvious logic.
+- Use `uv` as the default execution path for Python commands in this repo.
+- Prefer `uv run <cmd>` over calling `.venv/bin/python` directly.
 
 ## 6) Validation (Required Before Handover)
 - Run syntax checks for touched Python modules:
-  - `python3 -m py_compile <touched_py_files>`
+  - `uv run python -m py_compile <touched_py_files>`
+- For SFT pipeline changes, run smoke tests:
+  - `uv run python -m unittest -v test/test_sft_pipeline_smoke.py`
 - If behavior changes affect preprocessing:
   - verify output schema matches intended mode (`messages` vs `prompt/completion`).
 - If a check cannot run (missing dependency/environment):
