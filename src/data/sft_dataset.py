@@ -35,7 +35,7 @@ def load_tokenizer(
     return tok
 
 
-def build_sft_dataset(ds, tokenizer=None) -> Dataset:
+def build_hh_sft_dataset(ds, tokenizer=None) -> Dataset:
     """Convert HH dataset rows into prompt-completion format for SFT.
 
     For each HH `chosen` conversation, we train on the final assistant turn:

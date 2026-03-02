@@ -8,7 +8,7 @@ from transformers import AutoModelForCausalLM
 from trl import SFTConfig, SFTTrainer
 
 from ..data.sft_dataset import (
-    build_sft_dataset,
+    build_hh_sft_dataset,
     build_ultrachat_sft_dataset,
     load_tokenizer,
 )
@@ -168,7 +168,7 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
         )
     else:
         raw_ds = load_dataset(dataset_name, split=dataset_cfg["subset"])
-        sft_ds = build_sft_dataset(raw_ds, tok)
+        sft_ds = build_hh_sft_dataset(raw_ds, tok)
         val_ratio = float(dataset_cfg["val_ratio"])
         seed = int(dataset_cfg["seed"])
         split = sft_ds.train_test_split(test_size=val_ratio, seed=seed)
