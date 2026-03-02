@@ -39,7 +39,7 @@ sft_training:
     version: 1
     offload_params: false
     auto_wrap_policy: transformer_based_wrap
-    transformer_layer_cls_to_wrap: null
+    transformer_layer_cls_to_wrap: LlamaDecoderLayer
     min_num_params: null
     backward_prefetch: no_prefetch
     forward_prefetch: false

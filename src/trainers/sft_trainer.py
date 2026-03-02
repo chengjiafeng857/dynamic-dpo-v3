@@ -18,6 +18,25 @@ from ..data.templates import LLAMA3_CHAT_TEMPLATE
 ULTRACHAT_DATASET_ALLOWLIST = {"HuggingFaceH4/ultrachat_200k"}
 
 
+def _summarize_sample(sample: Any, *, max_chars: int = 500) -> str:
+    text = repr(sample)
+    if len(text) > max_chars:
+        return f"{text[:max_chars]}..."
+    return text
+
+
+def _print_dataset_preview(dataset: Any, *, label: str) -> None:
+    size = len(dataset)
+    if size == 0:
+        print(f"[SFT] {label}_sample=None (empty dataset)")
+        return
+
+    sample = dataset[0]
+    if isinstance(sample, dict):
+        print(f"[SFT] {label}_sample_keys={list(sample.keys())}")
+    print(f"[SFT] {label}_sample={_summarize_sample(sample)}")
+
+
 def _parse_fsdp_options(sft_cfg: Dict[str, Any]) -> Dict[str, Any]:
     fsdp_cfg = sft_cfg.get("fsdp")
     if not isinstance(fsdp_cfg, dict) or not bool(fsdp_cfg.get("enabled", False)):
@@ -172,6 +191,8 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
     if fsdp_options["enabled"] and fsdp_options["state_dict_type"] is not None:
         os.environ["FSDP_STATE_DICT_TYPE"] = str(fsdp_options["state_dict_type"])
 
+    gradient_checkpointing = bool(sft_cfg.get("gradient_checkpointing", True))
+
     save_strategy = str(sft_cfg.get("save_strategy", "best")).lower()
     load_best_model_at_end = bool(sft_cfg.get("load_best_model_at_end", True))
     metric_for_best_model = str(sft_cfg.get("metric_for_best_model", "eval_loss"))
@@ -208,6 +229,7 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
         report_to=["wandb"] if sft_cfg.get("wandb_project") else [],
         run_name=str(sft_cfg.get("run_name", "sft")),
         remove_unused_columns=False,
+        gradient_checkpointing=gradient_checkpointing,
         hub_model_id=sft_cfg.get("hub_model_id"),
         push_to_hub=bool(sft_cfg.get("push_to_hub")),
         dataset_text_field="messages",
@@ -236,6 +258,8 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
         f"max_length={training_args.max_length} "
         f"grad_accum={training_args.gradient_accumulation_steps}"
     )
+    _print_dataset_preview(train_ds, label="train")
+    _print_dataset_preview(eval_ds, label="eval")
 
     # WandB initialization
     wandb_project = sft_cfg.get("wandb_project")
