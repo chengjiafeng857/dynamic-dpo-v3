@@ -13,14 +13,14 @@ from .data.hh_dataset import (
     build_HH_dataset,
     load_generated_dataset_from_config,
 )
-from .trainers.beta_dpo import BetaDPOConfig, BetaDPOTrainer
-from .trainers.dynamic_beta_dpo import DynamicBetaDPOConfig, DynamicBetaDPOTrainer
 from .trainers.sft_trainer import run_sft_training
-from .utils.debug import log_dpo_debug_samples
 
 
 def main_dpo():
     """Main entry point for DPO training."""
+    from .trainers.dynamic_beta_dpo import DynamicBetaDPOConfig, DynamicBetaDPOTrainer
+    from .utils.debug import log_dpo_debug_samples
+
     parser = argparse.ArgumentParser(description="Run Dynamic Beta DPO training")
     parser.add_argument("--config", type=str, default="config_dpo.yaml")
     parser.add_argument("--output_dir", type=str, default="trl_dynamic_beta_out")
@@ -194,6 +194,8 @@ def main_sft():
 
 def main_beta_dpo():
     """Main entry point for Beta DPO training."""
+    from .trainers.beta_dpo import BetaDPOConfig, BetaDPOTrainer
+
     parser = argparse.ArgumentParser(description="Run Beta DPO training")
     parser.add_argument("--config", type=str, default="config_beta_dpo.yaml")
     parser.add_argument("--output_dir", type=str, default="beta_dpo_out")

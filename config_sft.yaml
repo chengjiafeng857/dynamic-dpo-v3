@@ -36,7 +36,13 @@ sft_training:
   epochs: 1
   log_steps: 10
   wandb_project: hh-llama32-1b-sft
+  eval_steps: 500
   save_steps: 500
+  save_strategy: best
+  load_best_model_at_end: true
+  metric_for_best_model: eval_loss
+  greater_is_better: false
+  save_total_limit: 2
   warmup_steps: 120
   warmup_ratio: 0.0
   lr_scheduler_type: linear
@@ -44,9 +50,24 @@ sft_training:
   packing: false
   completion_only_loss: true
   save_dir: sft_model
-  save_only_model: True
-  push_to_hub: True
+  save_only_model: true
+  push_to_hub: true
   hub_model_id: jackf857/hh-llama32-1b-Instruct-sft-30
+  fsdp:
+    enabled: false
+    mode: full_shard auto_wrap
+    version: 1
+    offload_params: false
+    auto_wrap_policy: transformer_based_wrap
+    transformer_layer_cls_to_wrap: null
+    min_num_params: null
+    backward_prefetch: no_prefetch
+    forward_prefetch: false
+    use_orig_params: true
+    cpu_ram_efficient_loading: true
+    sync_module_states: true
+    activation_checkpointing: false
+    state_dict_type: FULL_STATE_DICT
 
 risk_test:
   delta: 0.1
