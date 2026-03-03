@@ -4,7 +4,7 @@ precision: bf16
 
 dataset:
   dataset_name: Anthropic/hh-rlhf
-  config_name: helpful-base
+  data_dir: helpful-base
   generated_data: false
   chat_template: true
   chat_template_name: llama3

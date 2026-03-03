@@ -7,7 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from src.batch_sft_runner import build_run_matrix, cleanup_run_artifacts, run_batch_sft
+from src.batch_sft_runner import (
+    build_run_matrix,
+    cleanup_run_artifacts,
+    main,
+    run_batch_sft,
+)
 
 
 def _batch_config() -> dict:
@@ -147,6 +152,16 @@ class _CacheInfo:
 
 
 class SFTBatchRunnerTest(unittest.TestCase):
+    def test_main_accepts_torchrun_local_rank_argument(self):
+        with (
+            patch("src.batch_sft_runner.load_yaml", return_value=_batch_config()),
+            patch("src.batch_sft_runner.run_batch_sft", return_value=0) as mock_run_batch,
+        ):
+            exit_code = main(["--config", "config_sft_batch.yaml", "--local-rank", "3"])
+
+        self.assertEqual(exit_code, 0)
+        mock_run_batch.assert_called_once()
+
     def test_build_run_matrix_expands_six_runs_and_applies_overrides(self):
         batch_config = _batch_config()
 

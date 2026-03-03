@@ -141,6 +141,7 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
     dataset_cfg = config["dataset"]
     dataset_name = dataset_cfg["dataset_name"]
     dataset_config_name = dataset_cfg.get("config_name")
+    dataset_data_dir = dataset_cfg.get("data_dir")
     chat_template_name = dataset_cfg.get("chat_template_name")
     is_ultrachat = dataset_name in ULTRACHAT_DATASET_ALLOWLIST
 
@@ -177,9 +178,12 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
             completion_only_loss=completion_only_loss,
         )
     else:
+        hh_data_dir = dataset_data_dir
+        if hh_data_dir is None and dataset_config_name is not None:
+            hh_data_dir = dataset_config_name
         raw_ds = load_dataset(
             dataset_name,
-            name=dataset_config_name,
+            data_dir=hh_data_dir,
             split=dataset_cfg["subset"],
         )
         sft_ds = build_hh_sft_dataset(raw_ds, tok)

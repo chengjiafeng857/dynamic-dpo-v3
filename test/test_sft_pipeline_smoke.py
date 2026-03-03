@@ -100,9 +100,16 @@ class SFTPipelineSmokeTest(unittest.TestCase):
         _DummyTrainer.instances.clear()
 
     def _patches(self, dataset_map: dict, config: dict):
-        def _fake_load_dataset(path, name=None, split=None):
+        def _fake_load_dataset(path, name=None, split=None, data_dir=None):
             self.assertEqual(path, config["dataset"]["dataset_name"])
-            self.assertEqual(name, config["dataset"].get("config_name"))
+            if config["dataset"]["dataset_name"] == "Anthropic/hh-rlhf":
+                expected_data_dir = config["dataset"].get(
+                    "data_dir", config["dataset"].get("config_name")
+                )
+                self.assertEqual(data_dir, expected_data_dir)
+                self.assertIsNone(name)
+            else:
+                self.assertEqual(name, config["dataset"].get("config_name"))
             return dataset_map[split]
 
         return (
@@ -163,6 +170,21 @@ class SFTPipelineSmokeTest(unittest.TestCase):
     def test_hh_pipeline_supports_dataset_config_name(self):
         config = _base_sft_config()
         config["dataset"]["config_name"] = "harmless-base"
+        raw_hh = Dataset.from_list(
+            [
+                {"chosen": "\n\nHuman: Hi\n\nAssistant: Hello!"},
+                {"chosen": "\n\nHuman: Bye\n\nAssistant: See you."},
+            ]
+        )
+
+        trainer, output = self._run_pipeline(config, {"train": raw_hh})
+
+        self.assertTrue(trainer.saved)
+        self.assertIn("[SFT] mode=hh", output)
+
+    def test_hh_pipeline_supports_dataset_data_dir(self):
+        config = _base_sft_config()
+        config["dataset"]["data_dir"] = "helpful-base"
         raw_hh = Dataset.from_list(
             [
                 {"chosen": "\n\nHuman: Hi\n\nAssistant: Hello!"},

@@ -85,6 +85,12 @@ Use the batch config to run all 6 SFT jobs sequentially:
 uv run python scripts/run_sft_matrix.py --config config_sft_batch.yaml
 ```
 
+When `sft_training.fsdp.enabled: true`, launch it with `torchrun`. For a single node with 4 GPUs:
+
+```bash
+uv run torchrun --standalone --nproc-per-node=4 scripts/run_sft_matrix.py --config config_sft_batch.yaml
+```
+
 This batch runner:
 
 - reuses the existing single-run SFT YAMLs as templates

@@ -106,6 +106,43 @@ def _finish_wandb_run() -> None:
         return
 
 
+def _is_main_process() -> bool:
+    try:
+        import torch.distributed as dist
+
+        return (
+            (not dist.is_available())
+            or (not dist.is_initialized())
+            or (dist.get_rank() == 0)
+        )
+    except Exception:
+        return True
+
+
+def _distributed_barrier() -> None:
+    try:
+        import torch.distributed as dist
+
+        if dist.is_available() and dist.is_initialized():
+            dist.barrier()
+    except Exception:
+        return
+
+
+def _gather_error_messages(local_error: str | None) -> List[str]:
+    try:
+        import torch.distributed as dist
+
+        if not dist.is_available() or not dist.is_initialized():
+            return [local_error] if local_error else []
+
+        gathered: List[str | None] = [None] * dist.get_world_size()
+        dist.all_gather_object(gathered, local_error)
+        return [message for message in gathered if message]
+    except Exception:
+        return [local_error] if local_error else []
+
+
 def _clear_cuda_memory() -> None:
     try:
         import torch
@@ -187,6 +224,7 @@ def run_batch_sft(batch_config: Dict[str, Any], *, config_dir: Path) -> int:
     """Run the full SFT matrix sequentially and fail fast on errors."""
     cleanup_config = batch_config.get("cleanup", {})
     run_plans = build_run_matrix(batch_config, config_dir=config_dir)
+    is_main_process = _is_main_process()
 
     for index, run_plan in enumerate(run_plans, start=1):
         run_config = run_plan["config"]
@@ -194,28 +232,54 @@ def run_batch_sft(batch_config: Dict[str, Any], *, config_dir: Path) -> int:
             f"{run_plan['dataset_slug']} / {run_plan['model_slug']} "
             f"({index}/{len(run_plans)})"
         )
-        print(
-            f"[SFT-BATCH] Starting {run_label} "
-            f"from {run_plan['base_config_path']} -> {run_plan['hub_model_id']}"
-        )
+        if is_main_process:
+            print(
+                f"[SFT-BATCH] Starting {run_label} "
+                f"from {run_plan['base_config_path']} -> {run_plan['hub_model_id']}"
+            )
         trainer = None
+        train_error = None
         try:
             trainer = run_sft_training(run_config)
-            print(f"[SFT-BATCH] Training complete for {run_label}")
-            trainer.push_to_hub()
-            print(f"[SFT-BATCH] Upload complete for {run_label}")
         except Exception as exc:
-            print(f"[SFT-BATCH] Failed {run_label}: {exc}")
+            train_error = str(exc)
+
+        train_errors = _gather_error_messages(train_error)
+        if train_errors:
+            if is_main_process:
+                print(f"[SFT-BATCH] Failed {run_label}: {train_errors[0]}")
+            _distributed_barrier()
             return 1
 
-        cleanup_run_artifacts(
-            trainer=trainer,
-            run_config=run_config,
-            cleanup_config=cleanup_config,
-        )
-        print(f"[SFT-BATCH] Cleanup complete for {run_label}")
+        if is_main_process:
+            print(f"[SFT-BATCH] Training complete for {run_label}")
 
-    print(f"[SFT-BATCH] All {len(run_plans)} SFT runs completed successfully.")
+        push_error = None
+        if is_main_process:
+            try:
+                trainer.push_to_hub()
+                print(f"[SFT-BATCH] Upload complete for {run_label}")
+            except Exception as exc:
+                push_error = str(exc)
+
+        push_errors = _gather_error_messages(push_error)
+        if push_errors:
+            if is_main_process:
+                print(f"[SFT-BATCH] Failed {run_label}: {push_errors[0]}")
+            _distributed_barrier()
+            return 1
+
+        if is_main_process:
+            cleanup_run_artifacts(
+                trainer=trainer,
+                run_config=run_config,
+                cleanup_config=cleanup_config,
+            )
+            print(f"[SFT-BATCH] Cleanup complete for {run_label}")
+        _distributed_barrier()
+
+    if is_main_process:
+        print(f"[SFT-BATCH] All {len(run_plans)} SFT runs completed successfully.")
     return 0
 
 
@@ -223,6 +287,7 @@ def main(argv: List[str] | None = None) -> int:
     """CLI entry point for the batch SFT runner."""
     parser = argparse.ArgumentParser(description="Run the six-run SFT matrix")
     parser.add_argument("--config", type=str, default="config_sft_batch.yaml")
+    parser.add_argument("--local-rank", "--local_rank", dest="local_rank", type=int, default=-1)
     args = parser.parse_args(argv)
 
     config_path = Path(args.config).resolve()
