@@ -9,8 +9,6 @@ cleanup:
 execution_order: model_major
 
 datasets:
-  - base_config: config_sft_hh_helpful_base.yaml
-    dataset_slug: hh-helpful-base
   - base_config: config_sft_hh_harmless_base.yaml
     dataset_slug: hh-harmless-base
   - base_config: config_sft_ultrachat.yaml

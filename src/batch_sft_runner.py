@@ -61,39 +61,57 @@ def _build_run_config(
 
 def build_run_matrix(batch_config: Dict[str, Any], *, config_dir: Path) -> List[Dict[str, Any]]:
     """Expand the batch config into concrete per-run configs."""
-    execution_order = str(batch_config.get("execution_order", "dataset_major"))
-    if execution_order != "dataset_major":
+    execution_order = str(batch_config.get("execution_order", "model_major"))
+    if execution_order not in {"dataset_major", "model_major"}:
         raise ValueError(
-            "Only execution_order=dataset_major is supported for batch SFT runs."
+            "execution_order must be either 'dataset_major' or 'model_major'."
         )
 
     hf_username = str(batch_config["hf_username"])
     datasets = batch_config.get("datasets", [])
     models = batch_config.get("models", [])
-
-    run_plans: List[Dict[str, Any]] = []
+    dataset_specs: List[Dict[str, Any]] = []
     for dataset_entry in datasets:
         base_config_path = _resolve_config_path(str(dataset_entry["base_config"]), config_dir)
-        base_config = load_yaml(str(base_config_path))
-        dataset_slug = str(dataset_entry["dataset_slug"])
+        dataset_specs.append(
+            {
+                "base_config_path": str(base_config_path),
+                "base_config": load_yaml(str(base_config_path)),
+                "dataset_slug": str(dataset_entry["dataset_slug"]),
+            }
+        )
 
-        for model_entry in models:
-            run_config = _build_run_config(
-                base_config,
-                dataset_slug=dataset_slug,
-                model_entry=model_entry,
-                hf_username=hf_username,
-            )
-            run_plans.append(
-                {
-                    "base_config_path": str(base_config_path),
-                    "dataset_slug": dataset_slug,
-                    "model_slug": str(model_entry["model_slug"]),
-                    "policy_name": str(model_entry["policy_name"]),
-                    "hub_model_id": str(run_config["sft_training"]["hub_model_id"]),
-                    "config": run_config,
-                }
-            )
+    run_plans: List[Dict[str, Any]] = []
+    if execution_order == "dataset_major":
+        pairings = [
+            (dataset_spec, model_entry)
+            for dataset_spec in dataset_specs
+            for model_entry in models
+        ]
+    else:
+        pairings = [
+            (dataset_spec, model_entry)
+            for model_entry in models
+            for dataset_spec in dataset_specs
+        ]
+
+    for dataset_spec, model_entry in pairings:
+        run_config = _build_run_config(
+            dataset_spec["base_config"],
+            dataset_slug=dataset_spec["dataset_slug"],
+            model_entry=model_entry,
+            hf_username=hf_username,
+        )
+        run_plans.append(
+            {
+                "base_config_path": dataset_spec["base_config_path"],
+                "dataset_slug": dataset_spec["dataset_slug"],
+                "model_slug": str(model_entry["model_slug"]),
+                "policy_name": str(model_entry["policy_name"]),
+                "hub_model_id": str(run_config["sft_training"]["hub_model_id"]),
+                "config": run_config,
+            }
+        )
     return run_plans
 
 
@@ -191,6 +209,24 @@ def _delete_hf_cache_entries(repo_ids: Iterable[str]) -> None:
         print(f"[SFT-BATCH] Warning: failed to clean Hugging Face cache: {exc}")
 
 
+def _resolve_cache_cleanup_flags(cleanup_config: Dict[str, Any]) -> tuple[bool, bool, bool]:
+    legacy_delete_hf_cache = bool(cleanup_config.get("delete_hf_download_cache", False))
+    delete_policy_model_cache = bool(
+        cleanup_config.get("delete_policy_model_cache", legacy_delete_hf_cache)
+    )
+    delete_dataset_cache = bool(
+        cleanup_config.get("delete_dataset_cache", legacy_delete_hf_cache)
+    )
+    delete_completed_policy_model_cache = bool(
+        cleanup_config.get("delete_completed_policy_model_cache", False)
+    )
+    return (
+        delete_policy_model_cache,
+        delete_dataset_cache,
+        delete_completed_policy_model_cache,
+    )
+
+
 def cleanup_run_artifacts(
     *,
     trainer: Any,
@@ -212,12 +248,46 @@ def cleanup_run_artifacts(
         save_dir = Path(str(run_config["sft_training"]["save_dir"]))
         shutil.rmtree(save_dir, ignore_errors=True)
 
-    if bool(cleanup_config.get("delete_hf_download_cache", True)):
-        repo_ids = [
-            str(run_config["policy_name"]),
-            str(run_config["dataset"]["dataset_name"]),
-        ]
+    (
+        delete_policy_model_cache,
+        delete_dataset_cache,
+        _,
+    ) = _resolve_cache_cleanup_flags(cleanup_config)
+    repo_ids: List[str] = []
+
+    if delete_policy_model_cache:
+        policy_name = str(run_config["policy_name"])
+        ref_name = run_config.get("ref_name")
+        if ref_name is not None and str(ref_name) == policy_name:
+            print(
+                "[SFT-BATCH] Skipping policy model cache cleanup because "
+                "ref_name matches policy_name; Hugging Face cache is shared by repo_id."
+            )
+        else:
+            repo_ids.append(policy_name)
+
+    if delete_dataset_cache:
+        repo_ids.append(str(run_config["dataset"]["dataset_name"]))
+
+    if repo_ids:
         _delete_hf_cache_entries(repo_ids)
+
+
+def cleanup_completed_policy_cache(
+    *,
+    completed_policy_name: str,
+    cleanup_config: Dict[str, Any],
+) -> None:
+    """Delete a model cache only after its last run in the batch has completed."""
+    (
+        _delete_policy_model_cache,
+        _delete_dataset_cache,
+        delete_completed_policy_model_cache,
+    ) = _resolve_cache_cleanup_flags(cleanup_config)
+    if not delete_completed_policy_model_cache:
+        return
+
+    _delete_hf_cache_entries([completed_policy_name])
 
 
 def run_batch_sft(batch_config: Dict[str, Any], *, config_dir: Path) -> int:
@@ -276,6 +346,20 @@ def run_batch_sft(batch_config: Dict[str, Any], *, config_dir: Path) -> int:
                 cleanup_config=cleanup_config,
             )
             print(f"[SFT-BATCH] Cleanup complete for {run_label}")
+            has_future_same_policy = any(
+                future_run_plan["policy_name"] == run_plan["policy_name"]
+                for future_run_plan in run_plans[index:]
+            )
+            if not has_future_same_policy:
+                cleanup_completed_policy_cache(
+                    completed_policy_name=str(run_plan["policy_name"]),
+                    cleanup_config=cleanup_config,
+                )
+                if bool(cleanup_config.get("delete_completed_policy_model_cache", False)):
+                    print(
+                        "[SFT-BATCH] Deleted completed policy model cache for "
+                        f"{run_plan['policy_name']}"
+                    )
         _distributed_barrier()
 
     if is_main_process:

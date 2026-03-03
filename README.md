@@ -94,10 +94,20 @@ uv run torchrun --standalone --nproc-per-node=4 scripts/run_sft_matrix.py --conf
 This batch runner:
 
 - reuses the existing single-run SFT YAMLs as templates
+- defaults to `execution_order: model_major` so each 8B checkpoint is reused across its 3 datasets before switching models
 - runs HH `helpful-base`, HH `harmless-base`, and UltraChat on both `meta-llama/Meta-Llama-3-8B` and `Qwen/Qwen3-8B`
 - uploads each finished model to `W-61/<dataset>-<model>-sft`
 - deletes the local run directory after a successful upload
-- deletes the just-used Hugging Face download cache entries for that model and dataset before the next run
+- keeps Hugging Face download cache by default so repeated model and dataset loads are reused across the full batch
+- deletes a base-model cache only after its final use in the batch when `cleanup.delete_completed_policy_model_cache: true`
+
+Optional cache cleanup knobs:
+
+- `cleanup.delete_policy_model_cache: true` removes the just-used policy model repo cache after upload
+- `cleanup.delete_dataset_cache: true` removes the just-used dataset repo cache after upload
+- `cleanup.delete_completed_policy_model_cache: true` removes a model repo cache only after the runner finishes the last run that uses that model
+
+If `ref_name` matches `policy_name`, per-run `delete_policy_model_cache` cleanup is skipped because Hugging Face caches both under the same repo id. The end-of-model `delete_completed_policy_model_cache` cleanup still removes that model cache after its last run in the batch.
 
 Before starting:
 
