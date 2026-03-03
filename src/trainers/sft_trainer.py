@@ -9,10 +9,9 @@ from trl import SFTConfig, SFTTrainer
 
 from ..data.sft_dataset import (
     build_hh_sft_dataset,
-    build_ultrachat_sft_dataset,
     load_tokenizer,
 )
-from ..data.templates import LLAMA3_CHAT_TEMPLATE
+from ..data.ultrachat_dataset import build_ultrachat_sft_dataset
 
 
 ULTRACHAT_DATASET_ALLOWLIST = {"HuggingFaceH4/ultrachat_200k"}
@@ -141,6 +140,8 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
     sft_cfg = config["sft_training"]
     dataset_cfg = config["dataset"]
     dataset_name = dataset_cfg["dataset_name"]
+    dataset_config_name = dataset_cfg.get("config_name")
+    chat_template_name = dataset_cfg.get("chat_template_name")
     is_ultrachat = dataset_name in ULTRACHAT_DATASET_ALLOWLIST
 
     if "completion_only_loss" in sft_cfg:
@@ -148,16 +149,25 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
     else:
         completion_only_loss = False if is_ultrachat else True
 
-    tok = load_tokenizer(model_name, padding_side="right")
-
-    if not tok.chat_template:
-        tok.chat_template = LLAMA3_CHAT_TEMPLATE
+    tok = load_tokenizer(
+        model_name,
+        padding_side="right",
+        chat_template_name=chat_template_name,
+    )
 
     if is_ultrachat:
         train_subset = dataset_cfg.get("subset", "train_sft")
         eval_subset = dataset_cfg.get("eval_subset", "test_sft")
-        train_raw_ds = load_dataset(dataset_name, split=train_subset)
-        eval_raw_ds = load_dataset(dataset_name, split=eval_subset)
+        train_raw_ds = load_dataset(
+            dataset_name,
+            name=dataset_config_name,
+            split=train_subset,
+        )
+        eval_raw_ds = load_dataset(
+            dataset_name,
+            name=dataset_config_name,
+            split=eval_subset,
+        )
         train_ds = build_ultrachat_sft_dataset(
             train_raw_ds,
             completion_only_loss=completion_only_loss,
@@ -167,7 +177,11 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
             completion_only_loss=completion_only_loss,
         )
     else:
-        raw_ds = load_dataset(dataset_name, split=dataset_cfg["subset"])
+        raw_ds = load_dataset(
+            dataset_name,
+            name=dataset_config_name,
+            split=dataset_cfg["subset"],
+        )
         sft_ds = build_hh_sft_dataset(raw_ds, tok)
         val_ratio = float(dataset_cfg["val_ratio"])
         seed = int(dataset_cfg["seed"])

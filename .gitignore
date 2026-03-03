@@ -55,12 +55,17 @@ wandb/
 
 # ML/LLM training outputs (project-specific)
 sft_model/
+sft_model*/
 sft_ultrachat_model/
 dpo_model/
+dpo_model*/
 trl_dynamic_beta_dpo/
+trl_dynamic_beta_dpo*/
 trl_dynamic_beta_out/
 beta_dpo_out/
 rollout_output/
+rollout_output*/
+outputs/
 
 # Optional local caches
 .cache/

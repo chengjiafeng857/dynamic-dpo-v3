@@ -3,12 +3,15 @@
 from datasets import load_dataset, Dataset
 from typing import Any, Dict, Iterable, List, Optional
 
-from .templates import LLAMA3_CHAT_TEMPLATE, parse_hh_to_messages
+from .templates import (
+    ensure_tokenizer_chat_template,
+    get_assistant_generation_suffix,
+    parse_hh_to_messages,
+)
 
 
 ASSISTANT_TAG = "\n\nAssistant:"
 HUMAN_TAG = "\n\nHuman:"
-LLAMA3_ASSISTANT_HEADER = "<|start_header_id|>assistant<|end_header_id|>\n\n"
 
 
 def strip_one_leading_newline(s: str) -> str:
@@ -157,9 +160,14 @@ def build_rollout_dataset(ds: Iterable[Dict[str, Any]]) -> Dataset:
     return Dataset.from_list(rollout_ds_raw)
 
 
-def load_generated_hf_dataset(dataset_name: str, *, subset: str = "train") -> Dataset:
+def load_generated_hf_dataset(
+    dataset_name: str,
+    *,
+    subset: str = "train",
+    config_name: Optional[str] = None,
+) -> Dataset:
     """Load a generated dataset from HuggingFace."""
-    raw_ds = load_dataset(dataset_name, split=subset)
+    raw_ds = load_dataset(dataset_name, name=config_name, split=subset)
     return build_rollout_dataset(raw_ds)
 
 
@@ -170,22 +178,35 @@ def load_generated_dataset_from_config(config: Dict[str, Any]) -> Dataset:
     if not dataset_name:
         raise ValueError("Missing dataset.dataset_name in config.")
     subset = dataset_cfg.get("subset", "train")
-    return load_generated_hf_dataset(dataset_name, subset=subset)
+    return load_generated_hf_dataset(
+        dataset_name,
+        subset=subset,
+        config_name=dataset_cfg.get("config_name"),
+    )
 
 
-def _ensure_chat_template(tokenizer: Any) -> None:
-    if not getattr(tokenizer, "chat_template", None):
-        tokenizer.chat_template = LLAMA3_CHAT_TEMPLATE
+def _ensure_chat_template(
+    tokenizer: Any,
+    *,
+    model_name: Optional[str] = None,
+    chat_template_name: Optional[str] = None,
+) -> Optional[str]:
+    return ensure_tokenizer_chat_template(
+        tokenizer,
+        model_name=model_name or "",
+        configured_name=chat_template_name,
+    )
 
 
-def _ensure_generation_prompt(prompt_text: str, tokenizer: Any) -> str:
-    trimmed = prompt_text.rstrip()
-    if trimmed.endswith(LLAMA3_ASSISTANT_HEADER.rstrip()):
+def _ensure_generation_prompt(
+    prompt_text: str, *, assistant_generation_suffix: Optional[str]
+) -> str:
+    if not assistant_generation_suffix:
         return prompt_text
-    template = getattr(tokenizer, "chat_template", "") or ""
-    if "<|start_header_id|>" in prompt_text or "start_header_id" in template:
-        return f"{prompt_text}{LLAMA3_ASSISTANT_HEADER}"
-    return prompt_text
+    trimmed = prompt_text.rstrip()
+    if trimmed.endswith(assistant_generation_suffix.rstrip()):
+        return prompt_text
+    return f"{prompt_text}{assistant_generation_suffix}"
 
 
 def _render_response_with_chat_template(
@@ -210,9 +231,24 @@ def _render_response_with_chat_template(
     return rendered if rendered else None
 
 
-def apply_chat_template_to_dataset(ds: Dataset, tokenizer: Any) -> Dataset:
+def apply_chat_template_to_dataset(
+    ds: Dataset,
+    tokenizer: Any,
+    *,
+    model_name: Optional[str] = None,
+    chat_template_name: Optional[str] = None,
+) -> Dataset:
     """Apply chat template to dataset prompts and responses."""
-    _ensure_chat_template(tokenizer)
+    resolved_template_name = _ensure_chat_template(
+        tokenizer,
+        model_name=model_name,
+        chat_template_name=chat_template_name,
+    )
+    assistant_generation_suffix = None
+    if resolved_template_name is not None:
+        assistant_generation_suffix = get_assistant_generation_suffix(
+            resolved_template_name
+        )
     rows: List[Dict[str, str]] = []
     for row in ds:
         prompt_text = _normalize_text(row.get("prompt", "")).strip()
@@ -230,7 +266,10 @@ def apply_chat_template_to_dataset(ds: Dataset, tokenizer: Any) -> Dataset:
         )
         if not prompt_rendered:
             continue
-        prompt_rendered = _ensure_generation_prompt(prompt_rendered, tokenizer)
+        prompt_rendered = _ensure_generation_prompt(
+            prompt_rendered,
+            assistant_generation_suffix=assistant_generation_suffix,
+        )
 
         chosen_rendered = _render_response_with_chat_template(
             messages, str(chosen_text), tokenizer=tokenizer, prompt_text=prompt_rendered

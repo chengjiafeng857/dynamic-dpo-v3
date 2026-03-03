@@ -45,7 +45,11 @@ def main_dpo():
     # Load dataset
     dataset_name = config["dataset"]["dataset_name"]
     dataset_cfg = config["dataset"]
-    raw_ds = load_dataset(dataset_name, split=dataset_cfg["subset"])
+    raw_ds = load_dataset(
+        dataset_name,
+        name=dataset_cfg.get("config_name"),
+        split=dataset_cfg["subset"],
+    )
 
     if bool(dataset_cfg.get("generated_data", False)):
         hh_ds = load_generated_dataset_from_config(config)
@@ -53,7 +57,12 @@ def main_dpo():
         hh_ds = build_HH_dataset(raw_ds)
 
     if bool(dataset_cfg.get("chat_template", False)):
-        hh_ds = apply_chat_template_to_dataset(hh_ds, tok)
+        hh_ds = apply_chat_template_to_dataset(
+            hh_ds,
+            tok,
+            model_name=policy_name,
+            chat_template_name=dataset_cfg.get("chat_template_name"),
+        )
 
     # Split train/val
     val_ratio = float(config["dataset"]["val_ratio"])
@@ -219,7 +228,11 @@ def main_beta_dpo():
 
     # Load dataset
     dataset_cfg = config["dataset"]
-    raw_ds = load_dataset(dataset_cfg["dataset_name"], split=dataset_cfg["subset"])
+    raw_ds = load_dataset(
+        dataset_cfg["dataset_name"],
+        name=dataset_cfg.get("config_name"),
+        split=dataset_cfg["subset"],
+    )
 
     if bool(dataset_cfg.get("generated_data", False)):
         hh_ds = load_generated_dataset_from_config(config)
@@ -227,7 +240,12 @@ def main_beta_dpo():
         hh_ds = build_HH_dataset(raw_ds)
 
     if bool(dataset_cfg.get("chat_template", False)):
-        hh_ds = apply_chat_template_to_dataset(hh_ds, tok)
+        hh_ds = apply_chat_template_to_dataset(
+            hh_ds,
+            tok,
+            model_name=policy_name,
+            chat_template_name=dataset_cfg.get("chat_template_name"),
+        )
 
     # Split train/val
     val_ratio = float(config["dataset"]["val_ratio"])
