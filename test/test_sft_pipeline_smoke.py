@@ -333,6 +333,43 @@ class SFTPipelineSmokeTest(unittest.TestCase):
 
         self.assertEqual(trainer.processing_class.chat_template, get_chat_template("qwen3"))
 
+    def test_attn_implementation_is_forwarded_to_model_loader(self):
+        config = _base_sft_config()
+        config["sft_training"]["attn_implementation"] = "flash_attention_2"
+        raw_hh = Dataset.from_list(
+            [
+                {"chosen": "\n\nHuman: Hi\n\nAssistant: Hello!"},
+                {"chosen": "\n\nHuman: Bye\n\nAssistant: See you."},
+            ]
+        )
+
+        captured_kwargs = {}
+
+        def _fake_model_loader(*args, **kwargs):
+            del args
+            captured_kwargs.update(kwargs)
+            return object()
+
+        buffer = io.StringIO()
+        patches = self._patches({"train": raw_hh}, config)
+        with (
+            patches[0],
+            patches[1],
+            patch(
+                "src.trainers.sft_trainer.AutoModelForCausalLM.from_pretrained",
+                side_effect=_fake_model_loader,
+            ),
+            patch("src.trainers.sft_trainer.SFTTrainer", _DummyTrainer),
+            redirect_stdout(buffer),
+        ):
+            run_sft_training(config)
+
+        self.assertEqual(
+            captured_kwargs.get("attn_implementation"),
+            "flash_attention_2",
+        )
+        self.assertIn("attn_impl=flash_attention_2", buffer.getvalue())
+
     def test_fsdp_save_only_model_is_auto_overridden(self):
         config = _base_sft_config()
         config["sft_training"]["fsdp"]["enabled"] = True

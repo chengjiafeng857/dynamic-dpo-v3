@@ -267,14 +267,19 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
         sft_args_kwargs["warmup_ratio"] = float(sft_cfg["warmup_ratio"])
 
     training_args = SFTConfig(**sft_args_kwargs)
-    model = AutoModelForCausalLM.from_pretrained(model_name)
+    attn_implementation = sft_cfg.get("attn_implementation")
+    model_kwargs: Dict[str, Any] = {}
+    if attn_implementation:
+        model_kwargs["attn_implementation"] = str(attn_implementation)
+    model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
 
     mode = "ultrachat" if is_ultrachat else "hh"
     print(
         f"[SFT] mode={mode} dataset={dataset_name} "
         f"completion_only_loss={completion_only_loss} packing={packing} "
         f"max_length={training_args.max_length} "
-        f"grad_accum={training_args.gradient_accumulation_steps}"
+        f"grad_accum={training_args.gradient_accumulation_steps} "
+        f"attn_impl={attn_implementation or 'default'}"
     )
     _print_dataset_preview(train_ds, label="train")
     _print_dataset_preview(eval_ds, label="eval")

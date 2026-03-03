@@ -26,6 +26,7 @@ sft_training:
   save_total_limit: 1
   warmup_ratio: 0.1
   lr_scheduler_type: cosine
+  attn_implementation: flash_attention_2
   max_length: 2048
   packing: true
   completion_only_loss: false
