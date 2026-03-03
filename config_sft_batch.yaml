@@ -1,0 +1,27 @@
+hf_username: W-61
+
+cleanup:
+  delete_run_output: true
+  delete_hf_download_cache: true
+
+execution_order: dataset_major
+
+datasets:
+  - base_config: config_sft_hh_helpful_base.yaml
+    dataset_slug: hh-helpful-base
+  - base_config: config_sft_hh_harmless_base.yaml
+    dataset_slug: hh-harmless-base
+  - base_config: config_sft_ultrachat.yaml
+    dataset_slug: ultrachat
+
+models:
+  - policy_name: meta-llama/Meta-Llama-3-8B
+    ref_name: meta-llama/Meta-Llama-3-8B
+    model_slug: llama3-8b
+    chat_template_name: llama3
+    fsdp_transformer_layer_cls_to_wrap: LlamaDecoderLayer
+  - policy_name: Qwen/Qwen3-8B
+    ref_name: Qwen/Qwen3-8B
+    model_slug: qwen3-8b
+    chat_template_name: qwen3
+    fsdp_transformer_layer_cls_to_wrap: Qwen3DecoderLayer

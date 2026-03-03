@@ -77,6 +77,28 @@ This path:
 - keeps rows as `messages` because `sft_training.completion_only_loss: false`
 - defaults to the `llama3` chat template fallback
 
+### 3. Run the Six-Run SFT Matrix
+
+Use the batch config to run all 6 SFT jobs sequentially:
+
+```bash
+uv run python scripts/run_sft_matrix.py --config config_sft_batch.yaml
+```
+
+This batch runner:
+
+- reuses the existing single-run SFT YAMLs as templates
+- runs HH `helpful-base`, HH `harmless-base`, and UltraChat on both `meta-llama/Meta-Llama-3-8B` and `Qwen/Qwen3-8B`
+- uploads each finished model to `W-61/<dataset>-<model>-sft`
+- deletes the local run directory after a successful upload
+- deletes the just-used Hugging Face download cache entries for that model and dataset before the next run
+
+Before starting:
+
+- authenticate with Hugging Face so uploads can succeed
+- make sure your account has access to `meta-llama/Meta-Llama-3-8B`
+- review [config_sft_batch.yaml](/Users/seanmacbook/Research/dpo/dynamic-dpo-v3/config_sft_batch.yaml) if you want to change execution order or cleanup behavior
+
 ## Choose the Model and Chat Template
 
 The model is selected with `policy_name` in the YAML config.
@@ -191,3 +213,4 @@ This is useful for confirming that the dataset schema matches the intended mode 
 
 - [config_sft.yaml](/Users/seanmacbook/Research/dpo/dynamic-dpo-v3/config_sft.yaml): HH SFT, completion-only training
 - [config_sft_ultrachat.yaml](/Users/seanmacbook/Research/dpo/dynamic-dpo-v3/config_sft_ultrachat.yaml): UltraChat SFT, full-sequence training
+- [config_sft_batch.yaml](/Users/seanmacbook/Research/dpo/dynamic-dpo-v3/config_sft_batch.yaml): six-run batch SFT matrix for Llama 3 8B and Qwen 3 8B
