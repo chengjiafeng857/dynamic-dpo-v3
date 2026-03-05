@@ -100,8 +100,9 @@ class SFTPipelineSmokeTest(unittest.TestCase):
         _DummyTrainer.instances.clear()
 
     def _patches(self, dataset_map: dict, config: dict):
-        def _fake_load_dataset(path, name=None, split=None, data_dir=None):
+        def _fake_load_dataset(path, name=None, split=None, data_dir=None, cache_dir=None):
             self.assertEqual(path, config["dataset"]["dataset_name"])
+            self.assertEqual(cache_dir, config["dataset"].get("cache_dir"))
             if config["dataset"]["dataset_name"] == "Anthropic/hh-rlhf":
                 expected_data_dir = config["dataset"].get(
                     "data_dir", config["dataset"].get("config_name")
@@ -185,6 +186,21 @@ class SFTPipelineSmokeTest(unittest.TestCase):
     def test_hh_pipeline_supports_dataset_data_dir(self):
         config = _base_sft_config()
         config["dataset"]["data_dir"] = "helpful-base"
+        raw_hh = Dataset.from_list(
+            [
+                {"chosen": "\n\nHuman: Hi\n\nAssistant: Hello!"},
+                {"chosen": "\n\nHuman: Bye\n\nAssistant: See you."},
+            ]
+        )
+
+        trainer, output = self._run_pipeline(config, {"train": raw_hh})
+
+        self.assertTrue(trainer.saved)
+        self.assertIn("[SFT] mode=hh", output)
+
+    def test_hh_pipeline_supports_dataset_cache_dir(self):
+        config = _base_sft_config()
+        config["dataset"]["cache_dir"] = "/tmp/shared-hf-cache"
         raw_hh = Dataset.from_list(
             [
                 {"chosen": "\n\nHuman: Hi\n\nAssistant: Hello!"},
@@ -303,6 +319,43 @@ class SFTPipelineSmokeTest(unittest.TestCase):
         self.assertIn("[SFT] eval_sample_keys=['prompt', 'completion']", output)
         self.assertEqual(set(trainer.train_dataset.column_names), {"prompt", "completion"})
 
+    def test_ultrachat_pipeline_supports_dataset_cache_dir(self):
+        config = _base_sft_config()
+        config["dataset"]["dataset_name"] = "HuggingFaceH4/ultrachat_200k"
+        config["dataset"]["subset"] = "train_sft"
+        config["dataset"]["eval_subset"] = "test_sft"
+        config["dataset"]["cache_dir"] = "/tmp/shared-hf-cache"
+        config["sft_training"]["completion_only_loss"] = False
+        config["sft_training"]["packing"] = True
+
+        train_uc = Dataset.from_list(
+            [
+                {
+                    "messages": [
+                        {"role": "user", "content": "Tell me a joke"},
+                        {"role": "assistant", "content": "Why did the robot cross the road?"},
+                    ]
+                }
+            ]
+        )
+        eval_uc = Dataset.from_list(
+            [
+                {
+                    "messages": [
+                        {"role": "user", "content": "What is 1+1?"},
+                        {"role": "assistant", "content": "2"},
+                    ]
+                }
+            ]
+        )
+
+        trainer, output = self._run_pipeline(
+            config,
+            {"train_sft": train_uc, "test_sft": eval_uc},
+        )
+        self.assertTrue(trainer.saved)
+        self.assertIn("[SFT] mode=ultrachat", output)
+
     def test_qwen_pipeline_smoke_with_explicit_chat_template(self):
         config = _base_sft_config()
         config["policy_name"] = "Qwen/Qwen3-8B"
@@ -389,6 +442,63 @@ class SFTPipelineSmokeTest(unittest.TestCase):
         self.assertFalse(trainer.args.save_only_model)
         self.assertTrue(bool(trainer.args.fsdp))
         self.assertEqual(trainer.args.fsdp_config.get("version"), 1)
+
+    def test_optional_sft_args_forwarding_and_defaults(self):
+        config = _base_sft_config()
+        raw_hh = Dataset.from_list(
+            [
+                {"chosen": "\n\nHuman: Hi\n\nAssistant: Hello!"},
+                {"chosen": "\n\nHuman: Bye\n\nAssistant: See you."},
+            ]
+        )
+        captured_kwargs = []
+
+        def _capture_sft_config(**kwargs):
+            captured_kwargs.append(kwargs)
+            return SimpleNamespace(**kwargs)
+
+        patches = self._patches({"train": raw_hh}, config)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patch("src.trainers.sft_trainer.SFTConfig", side_effect=_capture_sft_config),
+            patch("src.trainers.sft_trainer.SFTTrainer", _DummyTrainer),
+        ):
+            run_sft_training(config)
+
+        first_kwargs = captured_kwargs[-1]
+        for key in (
+            "dataset_num_proc",
+            "packing_strategy",
+            "padding_free",
+            "eval_packing",
+            "max_steps",
+        ):
+            self.assertNotIn(key, first_kwargs)
+
+        config["sft_training"]["dataset_num_proc"] = 4
+        config["sft_training"]["packing_strategy"] = "wrapped"
+        config["sft_training"]["padding_free"] = False
+        config["sft_training"]["eval_packing"] = False
+        config["sft_training"]["max_steps"] = 3
+
+        patches = self._patches({"train": raw_hh}, config)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patch("src.trainers.sft_trainer.SFTConfig", side_effect=_capture_sft_config),
+            patch("src.trainers.sft_trainer.SFTTrainer", _DummyTrainer),
+        ):
+            run_sft_training(config)
+
+        second_kwargs = captured_kwargs[-1]
+        self.assertEqual(second_kwargs["dataset_num_proc"], 4)
+        self.assertEqual(second_kwargs["packing_strategy"], "wrapped")
+        self.assertFalse(second_kwargs["padding_free"])
+        self.assertFalse(second_kwargs["eval_packing"])
+        self.assertEqual(second_kwargs["max_steps"], 3)
 
     def test_invalid_gradient_accumulation_raises(self):
         config = _base_sft_config()

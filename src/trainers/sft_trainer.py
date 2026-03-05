@@ -142,6 +142,7 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
     dataset_name = dataset_cfg["dataset_name"]
     dataset_config_name = dataset_cfg.get("config_name")
     dataset_data_dir = dataset_cfg.get("data_dir")
+    dataset_cache_dir = dataset_cfg.get("cache_dir")
     chat_template_name = dataset_cfg.get("chat_template_name")
     is_ultrachat = dataset_name in ULTRACHAT_DATASET_ALLOWLIST
 
@@ -163,11 +164,13 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
             dataset_name,
             name=dataset_config_name,
             split=train_subset,
+            cache_dir=dataset_cache_dir,
         )
         eval_raw_ds = load_dataset(
             dataset_name,
             name=dataset_config_name,
             split=eval_subset,
+            cache_dir=dataset_cache_dir,
         )
         train_ds = build_ultrachat_sft_dataset(
             train_raw_ds,
@@ -185,6 +188,7 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
             dataset_name,
             data_dir=hh_data_dir,
             split=dataset_cfg["subset"],
+            cache_dir=dataset_cache_dir,
         )
         sft_ds = build_hh_sft_dataset(raw_ds, tok)
         val_ratio = float(dataset_cfg["val_ratio"])
@@ -257,6 +261,26 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
         sft_args_kwargs["save_total_limit"] = int(sft_cfg["save_total_limit"])
     else:
         sft_args_kwargs["save_total_limit"] = 2
+    optional_int_keys = {
+        "dataset_num_proc",
+        "max_steps",
+    }
+    optional_bool_keys = {
+        "padding_free",
+        "eval_packing",
+    }
+    optional_str_keys = {
+        "packing_strategy",
+    }
+    for key in optional_int_keys:
+        if key in sft_cfg and sft_cfg[key] is not None:
+            sft_args_kwargs[key] = int(sft_cfg[key])
+    for key in optional_bool_keys:
+        if key in sft_cfg and sft_cfg[key] is not None:
+            sft_args_kwargs[key] = bool(sft_cfg[key])
+    for key in optional_str_keys:
+        if key in sft_cfg and sft_cfg[key] is not None:
+            sft_args_kwargs[key] = str(sft_cfg[key])
     if fsdp_options["enabled"]:
         sft_args_kwargs.update(fsdp_options["args"])
 
