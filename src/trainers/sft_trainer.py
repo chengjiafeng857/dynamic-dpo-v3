@@ -1,7 +1,7 @@
 """SFT training utilities."""
 
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM
@@ -34,6 +34,19 @@ def _print_dataset_preview(dataset: Any, *, label: str) -> None:
     if isinstance(sample, dict):
         print(f"[SFT] {label}_sample_keys={list(sample.keys())}")
     print(f"[SFT] {label}_sample={_summarize_sample(sample)}")
+
+
+def _is_main_process() -> bool:
+    try:
+        import torch.distributed as dist
+
+        return (
+            (not dist.is_available())
+            or (not dist.is_initialized())
+            or (dist.get_rank() == 0)
+        )
+    except Exception:
+        return True
 
 
 def _parse_fsdp_options(sft_cfg: Dict[str, Any]) -> Dict[str, Any]:
@@ -127,34 +140,30 @@ def _parse_fsdp_options(sft_cfg: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
-    """Run SFT training based on configuration.
-    
-    Args:
-        config: Configuration dictionary with model, dataset, and training settings.
-        
-    Returns:
-        The trained SFTTrainer instance.
-    """
-    model_name = config["policy_name"]
-    sft_cfg = config["sft_training"]
-    dataset_cfg = config["dataset"]
-    dataset_name = dataset_cfg["dataset_name"]
-    dataset_config_name = dataset_cfg.get("config_name")
-    dataset_data_dir = dataset_cfg.get("data_dir")
-    chat_template_name = dataset_cfg.get("chat_template_name")
-    is_ultrachat = dataset_name in ULTRACHAT_DATASET_ALLOWLIST
-
+def _resolve_completion_only_loss(sft_cfg: Dict[str, Any], *, is_ultrachat: bool) -> bool:
     if "completion_only_loss" in sft_cfg:
-        completion_only_loss = bool(sft_cfg["completion_only_loss"])
-    else:
-        completion_only_loss = False if is_ultrachat else True
+        return bool(sft_cfg["completion_only_loss"])
+    return False if is_ultrachat else True
 
-    tok = load_tokenizer(
+
+def _load_tokenizer_for_sft(model_name: str, *, chat_template_name: str | None) -> Any:
+    return load_tokenizer(
         model_name,
         padding_side="right",
         chat_template_name=chat_template_name,
     )
+
+
+def _build_train_eval_datasets(
+    dataset_cfg: Dict[str, Any],
+    *,
+    tokenizer: Any,
+    completion_only_loss: bool,
+    is_ultrachat: bool,
+) -> Tuple[Any, Any]:
+    dataset_name = dataset_cfg["dataset_name"]
+    dataset_config_name = dataset_cfg.get("config_name")
+    dataset_data_dir = dataset_cfg.get("data_dir")
 
     if is_ultrachat:
         train_subset = dataset_cfg.get("subset", "train_sft")
@@ -177,22 +186,30 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
             eval_raw_ds,
             completion_only_loss=completion_only_loss,
         )
-    else:
-        hh_data_dir = dataset_data_dir
-        if hh_data_dir is None and dataset_config_name is not None:
-            hh_data_dir = dataset_config_name
-        raw_ds = load_dataset(
-            dataset_name,
-            data_dir=hh_data_dir,
-            split=dataset_cfg["subset"],
-        )
-        sft_ds = build_hh_sft_dataset(raw_ds, tok)
-        val_ratio = float(dataset_cfg["val_ratio"])
-        seed = int(dataset_cfg["seed"])
-        split = sft_ds.train_test_split(test_size=val_ratio, seed=seed)
-        train_ds = split["train"]
-        eval_ds = split["test"]
+        return train_ds, eval_ds
 
+    hh_data_dir = dataset_data_dir
+    if hh_data_dir is None and dataset_config_name is not None:
+        hh_data_dir = dataset_config_name
+    raw_ds = load_dataset(
+        dataset_name,
+        data_dir=hh_data_dir,
+        split=dataset_cfg["subset"],
+    )
+    sft_ds = build_hh_sft_dataset(raw_ds, tokenizer)
+    val_ratio = float(dataset_cfg["val_ratio"])
+    seed = int(dataset_cfg["seed"])
+    split = sft_ds.train_test_split(test_size=val_ratio, seed=seed)
+    return split["train"], split["test"]
+
+
+def _build_training_args(
+    config: Dict[str, Any],
+    *,
+    sft_cfg: Dict[str, Any],
+    completion_only_loss: bool,
+    is_ultrachat: bool,
+) -> Tuple[SFTConfig, Dict[str, Any]]:
     prec = config["precision"].lower()
     fp16 = prec == "fp16"
     bf16 = prec == "bf16"
@@ -267,11 +284,79 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
         sft_args_kwargs["warmup_ratio"] = float(sft_cfg["warmup_ratio"])
 
     training_args = SFTConfig(**sft_args_kwargs)
-    attn_implementation = sft_cfg.get("attn_implementation")
+    return training_args, fsdp_options
+
+
+def _load_causal_lm(model_name: str, *, attn_implementation: Any) -> Any:
     model_kwargs: Dict[str, Any] = {}
     if attn_implementation:
         model_kwargs["attn_implementation"] = str(attn_implementation)
-    model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+    return AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+
+
+def _maybe_init_wandb(
+    *,
+    sft_cfg: Dict[str, Any],
+    training_args: SFTConfig,
+    config: Dict[str, Any],
+) -> None:
+    wandb_project = sft_cfg.get("wandb_project")
+    if not wandb_project:
+        return
+    if not _is_main_process():
+        return
+
+    import wandb
+
+    wandb.init(
+        project=str(wandb_project),
+        name=training_args.run_name,
+        config=config,
+    )
+
+
+def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
+    """Run SFT training based on configuration.
+    
+    Args:
+        config: Configuration dictionary with model, dataset, and training settings.
+        
+    Returns:
+        The trained SFTTrainer instance.
+    """
+    model_name = config["policy_name"]
+    sft_cfg = config["sft_training"]
+    dataset_cfg = config["dataset"]
+    dataset_name = dataset_cfg["dataset_name"]
+    chat_template_name = dataset_cfg.get("chat_template_name")
+    is_ultrachat = dataset_name in ULTRACHAT_DATASET_ALLOWLIST
+
+    completion_only_loss = _resolve_completion_only_loss(
+        sft_cfg,
+        is_ultrachat=is_ultrachat,
+    )
+    tok = _load_tokenizer_for_sft(
+        model_name,
+        chat_template_name=chat_template_name,
+    )
+    train_ds, eval_ds = _build_train_eval_datasets(
+        dataset_cfg,
+        tokenizer=tok,
+        completion_only_loss=completion_only_loss,
+        is_ultrachat=is_ultrachat,
+    )
+    training_args, _ = _build_training_args(
+        config,
+        sft_cfg=sft_cfg,
+        completion_only_loss=completion_only_loss,
+        is_ultrachat=is_ultrachat,
+    )
+    attn_implementation = sft_cfg.get("attn_implementation")
+    model = _load_causal_lm(
+        model_name,
+        attn_implementation=attn_implementation,
+    )
+    packing = bool(sft_cfg.get("packing", is_ultrachat))
 
     mode = "ultrachat" if is_ultrachat else "hh"
     print(
@@ -284,23 +369,11 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
     _print_dataset_preview(train_ds, label="train")
     _print_dataset_preview(eval_ds, label="eval")
 
-    # WandB initialization
-    wandb_project = sft_cfg.get("wandb_project")
-    if wandb_project:
-        import torch.distributed as dist
-        is_main = (
-            (not dist.is_available())
-            or (not dist.is_initialized())
-            or (dist.get_rank() == 0)
-        )
-        if is_main:
-            import wandb
-
-            wandb.init(
-                project=str(wandb_project),
-                name=training_args.run_name,
-                config=config,
-            )
+    _maybe_init_wandb(
+        sft_cfg=sft_cfg,
+        training_args=training_args,
+        config=config,
+    )
 
     trainer = SFTTrainer(
         model=model,

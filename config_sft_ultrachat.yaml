@@ -36,7 +36,7 @@ sft_training:
   save_only_model: true
   gradient_checkpointing: false
   push_to_hub: false
-  hub_model_id: zephyr-7b-sft-full
+  hub_model_id: W-61/ultrachat-llama-3-8b-sft
   fsdp:
     enabled: true
     mode: full_shard auto_wrap
