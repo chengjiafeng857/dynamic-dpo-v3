@@ -179,10 +179,12 @@ uv run train-e-dpo --config config_e_dpo.yaml
 For FSDP runs (`dpo_training.fsdp.enabled: true`), launch with `torchrun`:
 
 ```bash
-uv run torchrun --standalone --nproc-per-node=4 "$(command -v train-beta-dpo)" --config config_beta_dpo.yaml
-uv run torchrun --standalone --nproc-per-node=4 "$(command -v train-margin-dpo)" --config config_margin_dpo.yaml
-uv run torchrun --standalone --nproc-per-node=4 "$(command -v train-e-dpo)" --config config_e_dpo.yaml
+uv run torchrun --standalone --nproc-per-node=4 scripts/run_beta_dpo.py --config config_beta_dpo.yaml
+uv run torchrun --standalone --nproc-per-node=4 scripts/run_margin_dpo.py --config config_margin_dpo.yaml
+uv run torchrun --standalone --nproc-per-node=4 scripts/run_e_dpo.py --config config_e_dpo.yaml
 ```
+
+Using a checked-in script path avoids shell-dependent `command -v` expansion. If that expansion returns an empty string, `torchrun` can fail before your code starts with `IndexError: string index out of range`.
 
 All three commands reuse the HH preprocessing pipeline:
 

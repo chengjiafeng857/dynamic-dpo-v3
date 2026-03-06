@@ -217,6 +217,27 @@ class DPOCliTest(unittest.TestCase):
         self.assertTrue(ref_model.eval_called)
         self.assertFalse(ref_model.parameters()[0].requires_grad_value)
 
+    def test_main_beta_dpo_accepts_torchrun_local_rank_argument(self):
+        config = _base_dpo_config()
+
+        trainer, _ = self._run_main(
+            main_beta_dpo,
+            config,
+            "src.trainers.beta_dpo_trainer.BetaDPOTrainer",
+            [
+                "train-beta-dpo",
+                "--config",
+                "config_beta_dpo.yaml",
+                "--output_dir",
+                "beta_out",
+                "--local-rank",
+                "3",
+            ],
+        )
+
+        self.assertTrue(trainer.train_called)
+        self.assertEqual(trainer.saved_path, "beta_out/final")
+
     def test_main_margin_dpo_passes_margin_log_path_and_standard_dpo_config(self):
         config = _base_dpo_config()
         config["margin_log"] = {"log_dir": "logs/custom_margins"}
@@ -242,6 +263,27 @@ class DPOCliTest(unittest.TestCase):
         self.assertEqual(set(trainer.train_dataset.column_names), {"prompt", "chosen", "rejected"})
         self.assertEqual(set(trainer.eval_dataset.column_names), {"prompt", "chosen", "rejected"})
 
+    def test_main_margin_dpo_accepts_torchrun_local_rank_argument(self):
+        config = _base_dpo_config()
+
+        trainer, _ = self._run_main(
+            main_margin_dpo,
+            config,
+            "src.trainers.margin_dpo_trainer.MarginDPOTrainer",
+            [
+                "train-margin-dpo",
+                "--config",
+                "config_margin_dpo.yaml",
+                "--output_dir",
+                "margin_out",
+                "--local_rank",
+                "2",
+            ],
+        )
+
+        self.assertTrue(trainer.train_called)
+        self.assertEqual(trainer.saved_path, "margin_out/final")
+
     def test_main_e_dpo_builds_epsilon_config_and_hh_triplets(self):
         config = _base_dpo_config()
         config["e_dpo"] = {
@@ -266,6 +308,27 @@ class DPOCliTest(unittest.TestCase):
         self.assertEqual(set(trainer.eval_dataset.column_names), {"prompt", "chosen", "rejected"})
         self.assertTrue(ref_model.eval_called)
         self.assertFalse(ref_model.parameters()[0].requires_grad_value)
+
+    def test_main_e_dpo_accepts_torchrun_local_rank_argument(self):
+        config = _base_dpo_config()
+
+        trainer, _ = self._run_main(
+            main_e_dpo,
+            config,
+            "src.trainers.e_dpo_trainer.EpsilonDPOTrainer",
+            [
+                "train-e-dpo",
+                "--config",
+                "config_e_dpo.yaml",
+                "--output_dir",
+                "e_out",
+                "--local-rank",
+                "1",
+            ],
+        )
+
+        self.assertTrue(trainer.train_called)
+        self.assertEqual(trainer.saved_path, "e_out/final")
 
     def test_main_beta_dpo_sets_fsdp_args_and_save_only_model_safety_override(self):
         config = _base_dpo_config()

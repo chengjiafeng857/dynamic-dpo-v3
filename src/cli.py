@@ -33,6 +33,13 @@ def _build_dpo_parser(
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--config", type=str, default=default_config)
     parser.add_argument("--output_dir", type=str, default=default_output_dir)
+    parser.add_argument(
+        "--local-rank",
+        "--local_rank",
+        dest="local_rank",
+        type=int,
+        default=-1,
+    )
     return parser
 
 
