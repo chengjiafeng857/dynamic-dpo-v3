@@ -9,7 +9,7 @@ dataset:
   generated_data: false
   chat_template: true
   chat_template_name: llama3
-  subset: train[:30%]
+  subset: train[:100%]
   val_ratio: 0.1
   seed: 42
   max_len: 512
@@ -22,7 +22,7 @@ dpo_training:
   log_steps: 10
   eval_steps: 100
   save_steps: 100
-  gradient_accumulation: 1
+  gradient_accumulation: 4
   max_grad_norm: 1.0
   warmup_steps: 0
   gradient_checkpointing: false
@@ -36,7 +36,7 @@ dpo_training:
   save_total_limit: 2
   save_only_model: false
   fsdp:
-    enabled: false
+    enabled: true
     mode: full_shard auto_wrap
     version: 1
     offload_params: false

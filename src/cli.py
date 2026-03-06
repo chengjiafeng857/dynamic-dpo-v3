@@ -312,17 +312,9 @@ def main_dpo():
     )
 
 
-def main_beta_dpo():
-    """Main entry point for Beta DPO training."""
+def run_beta_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
+    """Run one Beta DPO training job from an in-memory config."""
     from .trainers.beta_dpo_trainer import BetaDPOConfig, BetaDPOTrainer
-
-    parser = _build_dpo_parser(
-        description="Run Beta DPO training",
-        default_config="config_beta_dpo.yaml",
-        default_output_dir="beta_dpo_out",
-    )
-    args = parser.parse_args()
-    config = load_yaml(args.config)
 
     policy, ref_model, tokenizer, policy_name = _load_policy_ref_and_tokenizer(config)
     train_ds, eval_ds = _build_hh_dpo_datasets(config, tokenizer, policy_name)
@@ -348,20 +340,12 @@ def main_beta_dpo():
         eval_dataset=eval_ds,
         processing_class=None,
     )
-    _finalize_dpo_training(trainer, args.output_dir, config["dpo_training"])
+    _finalize_dpo_training(trainer, output_dir, config["dpo_training"])
 
 
-def main_margin_dpo():
-    """Main entry point for Margin DPO training."""
+def run_margin_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
+    """Run one Margin DPO training job from an in-memory config."""
     from .trainers.margin_dpo_trainer import MarginDPOTrainer
-
-    parser = _build_dpo_parser(
-        description="Run Margin DPO training",
-        default_config="config_margin_dpo.yaml",
-        default_output_dir="margin_dpo_out",
-    )
-    args = parser.parse_args()
-    config = load_yaml(args.config)
 
     policy, ref_model, tokenizer, policy_name = _load_policy_ref_and_tokenizer(config)
     train_ds, eval_ds = _build_hh_dpo_datasets(config, tokenizer, policy_name)
@@ -380,4 +364,28 @@ def main_margin_dpo():
         margin_log_path=str(margin_cfg.get("log_dir", "logs/margins")),
         processing_class=None,
     )
-    _finalize_dpo_training(trainer, args.output_dir, config["dpo_training"])
+    _finalize_dpo_training(trainer, output_dir, config["dpo_training"])
+
+
+def main_beta_dpo():
+    """Main entry point for Beta DPO training."""
+    parser = _build_dpo_parser(
+        description="Run Beta DPO training",
+        default_config="config_beta_dpo.yaml",
+        default_output_dir="beta_dpo_out",
+    )
+    args = parser.parse_args()
+    config = load_yaml(args.config)
+    run_beta_dpo_training(config, output_dir=args.output_dir)
+
+
+def main_margin_dpo():
+    """Main entry point for Margin DPO training."""
+    parser = _build_dpo_parser(
+        description="Run Margin DPO training",
+        default_config="config_margin_dpo.yaml",
+        default_output_dir="margin_dpo_out",
+    )
+    args = parser.parse_args()
+    config = load_yaml(args.config)
+    run_margin_dpo_training(config, output_dir=args.output_dir)

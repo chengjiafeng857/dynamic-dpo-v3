@@ -1,0 +1,50 @@
+hf_username: W-61
+
+cleanup:
+  delete_run_output: false
+  delete_policy_model_cache: false
+  delete_dataset_cache: false
+  delete_completed_policy_model_cache: false
+
+execution_order: run_major
+
+trainers:
+  - trainer_type: beta
+    trainer_slug: beta-dpo
+    base_config: config_beta_dpo.yaml
+  - trainer_type: margin
+    trainer_slug: margin-dpo
+    base_config: config_margin_dpo.yaml
+
+runs:
+  - dataset_slug: hh-helpful-base
+    model_slug: qwen3-8b
+    policy_name: W-61/hh-helpful-base-qwen3-8b-sft
+    ref_name: W-61/hh-helpful-base-qwen3-8b-sft
+    dataset_data_dir: helpful-base
+    chat_template_name: qwen3
+    fsdp_transformer_layer_cls_to_wrap: Qwen3DecoderLayer
+
+  - dataset_slug: hh-harmless-base
+    model_slug: qwen3-8b
+    policy_name: W-61/hh-harmless-base-qwen3-8b-sft
+    ref_name: W-61/hh-harmless-base-qwen3-8b-sft
+    dataset_data_dir: harmless-base
+    chat_template_name: qwen3
+    fsdp_transformer_layer_cls_to_wrap: Qwen3DecoderLayer
+
+  - dataset_slug: hh-helpful-base
+    model_slug: llama3-8b
+    policy_name: W-61/hh-helpful-base-llama3-8b-sft
+    ref_name: W-61/hh-helpful-base-llama3-8b-sft
+    dataset_data_dir: helpful-base
+    chat_template_name: llama3
+    fsdp_transformer_layer_cls_to_wrap: LlamaDecoderLayer
+
+  - dataset_slug: hh-harmless-base
+    model_slug: llama3-8b
+    policy_name: W-61/hh-harmless-base-llama3-8b-sft
+    ref_name: W-61/hh-harmless-base-llama3-8b-sft
+    dataset_data_dir: harmless-base
+    chat_template_name: llama3
+    fsdp_transformer_layer_cls_to_wrap: LlamaDecoderLayer
