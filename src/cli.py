@@ -182,6 +182,7 @@ def _parse_dpo_fsdp_options(dpo_cfg: Dict[str, Any]) -> Dict[str, Any]:
 
 def _build_common_dpo_config_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
     dpo_train_args = config["dpo_training"]
+    dataset_cfg = config.get("dataset", {})
     precision = str(config.get("precision", "fp32")).lower()
     wandb_project = dpo_train_args.get("wandb_project") or dpo_train_args.get("report")
     fsdp_options = _parse_dpo_fsdp_options(dpo_train_args)
@@ -208,6 +209,13 @@ def _build_common_dpo_config_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
         "remove_unused_columns": False,
         "output_dir": dpo_train_args["save_dir"],
     }
+
+    max_len = dataset_cfg.get("max_len")
+    if max_len is not None:
+        max_length = int(max_len)
+        if max_length <= 0:
+            raise ValueError("dataset.max_len must be > 0.")
+        kwargs["max_length"] = max_length
 
     if "gradient_checkpointing" in dpo_train_args:
         kwargs["gradient_checkpointing"] = bool(dpo_train_args["gradient_checkpointing"])
