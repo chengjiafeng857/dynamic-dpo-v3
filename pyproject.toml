@@ -31,6 +31,7 @@ dependencies = [
 train-dpo = "src.cli:main_dpo"
 train-sft = "src.cli:main_sft"
 train-beta-dpo = "src.cli:main_beta_dpo"
+train-margin-dpo = "src.cli:main_margin_dpo"
 
 [tool.setuptools.packages.find]
 where = ["."]

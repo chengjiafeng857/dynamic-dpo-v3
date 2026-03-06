@@ -27,17 +27,19 @@ You can also run commands with `uv run ...` without manually activating the venv
 
 ## Available Commands
 
-Installing the package exposes three console scripts:
+Installing the package exposes four console scripts:
 
 - `train-sft`
 - `train-dpo`
 - `train-beta-dpo`
+- `train-margin-dpo`
 
 They map to:
 
 - `src.cli:main_sft`
 - `src.cli:main_dpo`
 - `src.cli:main_beta_dpo`
+- `src.cli:main_margin_dpo`
 
 ## Run SFT
 
@@ -161,25 +163,48 @@ The most important settings are:
 - `push_to_hub`
 - `hub_model_id`
 
-## DPO and Beta DPO
+## Beta DPO and Margin DPO
 
-The CLI entrypoints for DPO exist:
+The HH-based DPO CLI entrypoints are:
 
 ```bash
-uv run train-dpo --config <your_dpo_config.yaml>
-uv run train-beta-dpo --config <your_beta_dpo_config.yaml>
+uv run train-beta-dpo --config config_beta_dpo.yaml
+uv run train-margin-dpo --config config_margin_dpo.yaml
 ```
 
-In this checkout, the packaged commands exist in [pyproject.toml](/Users/seanmacbook/Research/dpo/dynamic-dpo-v3/pyproject.toml), but the repository tree currently only includes the SFT trainer file under `src/trainers/`.
+For FSDP runs (`dpo_training.fsdp.enabled: true`), launch with `torchrun`:
 
-That means the SFT path is the only fully present training path in this repo snapshot.
+```bash
+uv run torchrun --standalone --nproc-per-node=4 "$(command -v train-beta-dpo)" --config config_beta_dpo.yaml
+uv run torchrun --standalone --nproc-per-node=4 "$(command -v train-margin-dpo)" --config config_margin_dpo.yaml
+```
 
-If you restore the missing DPO trainer modules, note that this checkout also does not currently include example DPO config files in the repository root, while the CLI defaults expect:
+Both commands reuse the HH preprocessing pipeline:
 
-- `config_dpo.yaml`
+- load `Anthropic/hh-rlhf`
+- convert rows into `{"prompt", "chosen", "rejected"}`
+- optionally apply the configured chat template
+- split into train and eval using `dataset.val_ratio` and `dataset.seed`
+
+The dedicated example configs are:
+
 - `config_beta_dpo.yaml`
+- `config_margin_dpo.yaml`
 
-At that point, create those config files first or pass an explicit config path.
+`config_beta_dpo.yaml` adds a `beta_dpo` block with:
+
+- `beta`
+- `rho`
+- `alpha`
+- `ema_momentum`
+- `beta_min`
+- `sync_global_mask`
+
+`config_margin_dpo.yaml` uses `margin_log.log_dir` for margin dumps.
+
+`dpo_training.fsdp` follows the same schema used by `sft_training.fsdp`, and DPO uses `dpo_training.gradient_checkpointing` for the `DPOConfig` checkpointing toggle.
+
+Current v1 DPO FSDP keeps a live frozen `ref_model` path (no precomputed reference log-probs), so multi-GPU memory usage can still be high.
 
 ## Useful Validation Commands
 

@@ -17,7 +17,7 @@ from ..data.ultrachat_dataset import build_ultrachat_sft_dataset
 ULTRACHAT_DATASET_ALLOWLIST = {"HuggingFaceH4/ultrachat_200k"}
 
 
-def _summarize_sample(sample: Any, *, max_chars: int = 500) -> str:
+def _summarize_sample(sample: Any, *, max_chars: int = 2048) -> str:
     text = repr(sample)
     if len(text) > max_chars:
         return f"{text[:max_chars]}..."

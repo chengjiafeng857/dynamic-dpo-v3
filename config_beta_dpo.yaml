@@ -1,0 +1,59 @@
+# HH Beta DPO example config.
+policy_name: meta-llama/Llama-3.2-1B-Instruct
+ref_name: meta-llama/Llama-3.2-1B-Instruct
+precision: bf16
+
+dataset:
+  dataset_name: Anthropic/hh-rlhf
+  data_dir: helpful-base
+  generated_data: false
+  chat_template: true
+  chat_template_name: llama3
+  subset: train[:30%]
+  val_ratio: 0.1
+  seed: 42
+
+dpo_training:
+  epochs: 1
+  batch_size: 4
+  eval_batch_size: 4
+  learning_rate: 5e-7
+  log_steps: 10
+  eval_steps: 100
+  save_steps: 100
+  gradient_accumulation: 1
+  max_grad_norm: 1.0
+  warmup_steps: 0
+  gradient_checkpointing: false
+  report: null
+  run_name: hh-beta-dpo
+  save_dir: beta_dpo_checkpoints
+  save_strategy: steps
+  load_best_model_at_end: false
+  metric_for_best_model: eval_loss
+  greater_is_better: false
+  save_total_limit: 2
+  save_only_model: false
+  fsdp:
+    enabled: false
+    mode: full_shard auto_wrap
+    version: 1
+    offload_params: false
+    auto_wrap_policy: transformer_based_wrap
+    transformer_layer_cls_to_wrap: null
+    min_num_params: null
+    backward_prefetch: no_prefetch
+    forward_prefetch: false
+    use_orig_params: true
+    cpu_ram_efficient_loading: true
+    sync_module_states: true
+    activation_checkpointing: false
+    state_dict_type: FULL_STATE_DICT
+
+beta_dpo:
+  beta: 0.1
+  rho: 0.8
+  alpha: 1.0
+  ema_momentum: 0.9
+  beta_min: 0.001
+  sync_global_mask: true
