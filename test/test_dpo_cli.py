@@ -1,4 +1,4 @@
-"""Unit tests for HH-based Beta and Margin DPO CLI entry points."""
+"""Unit tests for HH-based Beta, Margin, and Epsilon DPO CLI entry points."""
 
 import sys
 import unittest
@@ -7,8 +7,9 @@ from unittest.mock import patch
 from datasets import Dataset
 from trl import DPOConfig
 
-from src.cli import main_beta_dpo, main_margin_dpo
+from src.cli import main_beta_dpo, main_e_dpo, main_margin_dpo
 from src.trainers.beta_dpo_trainer import BetaDPOConfig
+from src.trainers.e_dpo_trainer import EpsilonDPOConfig
 
 
 def _base_dpo_config() -> dict:
@@ -241,6 +242,31 @@ class DPOCliTest(unittest.TestCase):
         self.assertEqual(set(trainer.train_dataset.column_names), {"prompt", "chosen", "rejected"})
         self.assertEqual(set(trainer.eval_dataset.column_names), {"prompt", "chosen", "rejected"})
 
+    def test_main_e_dpo_builds_epsilon_config_and_hh_triplets(self):
+        config = _base_dpo_config()
+        config["e_dpo"] = {
+            "beta": 0.15,
+            "epsilon": 0.02,
+        }
+
+        trainer, ref_model = self._run_main(
+            main_e_dpo,
+            config,
+            "src.trainers.e_dpo_trainer.EpsilonDPOTrainer",
+            ["train-e-dpo", "--config", "config_e_dpo.yaml", "--output_dir", "e_out"],
+        )
+
+        self.assertTrue(trainer.train_called)
+        self.assertEqual(trainer.saved_path, "e_out/final")
+        self.assertIsInstance(trainer.args, EpsilonDPOConfig)
+        self.assertEqual(trainer.args.beta, 0.15)
+        self.assertEqual(trainer.args.epsilon, 0.02)
+        self.assertEqual(trainer.args.max_length, 64)
+        self.assertEqual(set(trainer.train_dataset.column_names), {"prompt", "chosen", "rejected"})
+        self.assertEqual(set(trainer.eval_dataset.column_names), {"prompt", "chosen", "rejected"})
+        self.assertTrue(ref_model.eval_called)
+        self.assertFalse(ref_model.parameters()[0].requires_grad_value)
+
     def test_main_beta_dpo_sets_fsdp_args_and_save_only_model_safety_override(self):
         config = _base_dpo_config()
         config["dpo_training"]["gradient_checkpointing"] = False
@@ -288,6 +314,29 @@ class DPOCliTest(unittest.TestCase):
             ["LlamaDecoderLayer"],
         )
 
+    def test_main_e_dpo_sets_fsdp_args_and_save_only_model_safety_override(self):
+        config = _base_dpo_config()
+        config["dpo_training"]["gradient_checkpointing"] = False
+        config["dpo_training"]["load_best_model_at_end"] = True
+        config["dpo_training"]["save_only_model"] = True
+        config["dpo_training"]["fsdp"] = _dpo_fsdp_config()
+
+        trainer, _ = self._run_main(
+            main_e_dpo,
+            config,
+            "src.trainers.e_dpo_trainer.EpsilonDPOTrainer",
+            ["train-e-dpo", "--config", "config_e_dpo.yaml", "--output_dir", "e_out"],
+        )
+
+        self.assertEqual(self._fsdp_tokens(trainer.args.fsdp), {"full_shard", "auto_wrap"})
+        self.assertIn("transformer_layer_cls_to_wrap", trainer.args.fsdp_config)
+        self.assertEqual(
+            trainer.args.fsdp_config["transformer_layer_cls_to_wrap"],
+            ["LlamaDecoderLayer"],
+        )
+        self.assertFalse(trainer.args.save_only_model)
+        self.assertFalse(trainer.args.gradient_checkpointing)
+
     def test_main_beta_dpo_invalid_fsdp_auto_wrap_policy_raises_value_error(self):
         config = _base_dpo_config()
         config["dpo_training"]["fsdp"] = _dpo_fsdp_config()
@@ -331,4 +380,16 @@ class DPOCliTest(unittest.TestCase):
                 config,
                 "src.trainers.beta_dpo_trainer.BetaDPOTrainer",
                 ["train-beta-dpo", "--config", "config_beta_dpo.yaml", "--output_dir", "beta_out"],
+            )
+
+    def test_main_e_dpo_invalid_dataset_max_len_raises_value_error(self):
+        config = _base_dpo_config()
+        config["dataset"]["max_len"] = 0
+
+        with self.assertRaisesRegex(ValueError, "dataset\\.max_len must be > 0"):
+            self._run_main(
+                main_e_dpo,
+                config,
+                "src.trainers.e_dpo_trainer.EpsilonDPOTrainer",
+                ["train-e-dpo", "--config", "config_e_dpo.yaml", "--output_dir", "e_out"],
             )

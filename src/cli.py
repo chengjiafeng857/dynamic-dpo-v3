@@ -322,7 +322,7 @@ def main_dpo():
     """Legacy DPO entry point."""
     raise NotImplementedError(
         "The generic train-dpo entry point is not wired in this checkout. "
-        "Use train-beta-dpo or train-margin-dpo instead."
+        "Use train-beta-dpo, train-margin-dpo, or train-e-dpo instead."
     )
 
 
@@ -381,6 +381,33 @@ def run_margin_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
     _finalize_dpo_training(trainer, output_dir, config["dpo_training"])
 
 
+def run_e_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
+    """Run one Epsilon DPO training job from an in-memory config."""
+    from .trainers.e_dpo_trainer import EpsilonDPOConfig, EpsilonDPOTrainer
+
+    policy, ref_model, tokenizer, policy_name = _load_policy_ref_and_tokenizer(config)
+    train_ds, eval_ds = _build_hh_dpo_datasets(config, tokenizer, policy_name)
+
+    e_dpo_cfg = config.get("e_dpo", {})
+    training_args = EpsilonDPOConfig(
+        **_build_common_dpo_config_kwargs(config),
+        beta=float(e_dpo_cfg.get("beta", 0.1)),
+        epsilon=float(e_dpo_cfg.get("epsilon", 0.01)),
+    )
+
+    _maybe_init_wandb(config)
+
+    trainer = EpsilonDPOTrainer(
+        model=policy,
+        ref_model=ref_model,
+        args=training_args,
+        train_dataset=train_ds,
+        eval_dataset=eval_ds,
+        processing_class=None,
+    )
+    _finalize_dpo_training(trainer, output_dir, config["dpo_training"])
+
+
 def main_beta_dpo():
     """Main entry point for Beta DPO training."""
     parser = _build_dpo_parser(
@@ -403,3 +430,15 @@ def main_margin_dpo():
     args = parser.parse_args()
     config = load_yaml(args.config)
     run_margin_dpo_training(config, output_dir=args.output_dir)
+
+
+def main_e_dpo():
+    """Main entry point for Epsilon DPO training."""
+    parser = _build_dpo_parser(
+        description="Run Epsilon DPO training",
+        default_config="config_e_dpo.yaml",
+        default_output_dir="e_dpo_out",
+    )
+    args = parser.parse_args()
+    config = load_yaml(args.config)
+    run_e_dpo_training(config, output_dir=args.output_dir)

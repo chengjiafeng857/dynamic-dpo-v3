@@ -5,6 +5,7 @@ This repository is a small TRL + Transformers training workspace for:
 - supervised fine-tuning (SFT)
 - dynamic-beta DPO
 - beta DPO
+- epsilon DPO
 
 The most complete and directly runnable path in this checkout is the SFT pipeline.
 
@@ -27,12 +28,13 @@ You can also run commands with `uv run ...` without manually activating the venv
 
 ## Available Commands
 
-Installing the package exposes four console scripts:
+Installing the package exposes five console scripts:
 
 - `train-sft`
 - `train-dpo`
 - `train-beta-dpo`
 - `train-margin-dpo`
+- `train-e-dpo`
 
 They map to:
 
@@ -40,6 +42,7 @@ They map to:
 - `src.cli:main_dpo`
 - `src.cli:main_beta_dpo`
 - `src.cli:main_margin_dpo`
+- `src.cli:main_e_dpo`
 
 ## Run SFT
 
@@ -163,13 +166,14 @@ The most important settings are:
 - `push_to_hub`
 - `hub_model_id`
 
-## Beta DPO and Margin DPO
+## Beta DPO, Margin DPO, and Epsilon DPO
 
 The HH-based DPO CLI entrypoints are:
 
 ```bash
 uv run train-beta-dpo --config config_beta_dpo.yaml
 uv run train-margin-dpo --config config_margin_dpo.yaml
+uv run train-e-dpo --config config_e_dpo.yaml
 ```
 
 For FSDP runs (`dpo_training.fsdp.enabled: true`), launch with `torchrun`:
@@ -177,9 +181,10 @@ For FSDP runs (`dpo_training.fsdp.enabled: true`), launch with `torchrun`:
 ```bash
 uv run torchrun --standalone --nproc-per-node=4 "$(command -v train-beta-dpo)" --config config_beta_dpo.yaml
 uv run torchrun --standalone --nproc-per-node=4 "$(command -v train-margin-dpo)" --config config_margin_dpo.yaml
+uv run torchrun --standalone --nproc-per-node=4 "$(command -v train-e-dpo)" --config config_e_dpo.yaml
 ```
 
-Both commands reuse the HH preprocessing pipeline:
+All three commands reuse the HH preprocessing pipeline:
 
 - load `Anthropic/hh-rlhf`
 - convert rows into `{"prompt", "chosen", "rejected"}`
@@ -190,6 +195,7 @@ The dedicated example configs are:
 
 - `config_beta_dpo.yaml`
 - `config_margin_dpo.yaml`
+- `config_e_dpo.yaml`
 
 `config_beta_dpo.yaml` adds a `beta_dpo` block with:
 
@@ -201,6 +207,11 @@ The dedicated example configs are:
 - `sync_global_mask`
 
 `config_margin_dpo.yaml` uses `margin_log.log_dir` for margin dumps.
+
+`config_e_dpo.yaml` adds an `e_dpo` block with:
+
+- `beta`
+- `epsilon`
 
 `dpo_training.fsdp` follows the same schema used by `sft_training.fsdp`, and DPO uses `dpo_training.gradient_checkpointing` for the `DPOConfig` checkpointing toggle.
 
