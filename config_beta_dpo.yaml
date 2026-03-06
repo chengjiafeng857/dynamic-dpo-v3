@@ -29,12 +29,12 @@ dpo_training:
   report: null
   run_name: hh-beta-dpo
   save_dir: beta_dpo_checkpoints
-  save_strategy: steps
+  save_strategy: "no"
   load_best_model_at_end: false
   metric_for_best_model: eval_loss
   greater_is_better: false
   save_total_limit: 2
-  save_only_model: false
+  save_only_model: true
   fsdp:
     enabled: true
     mode: full_shard auto_wrap

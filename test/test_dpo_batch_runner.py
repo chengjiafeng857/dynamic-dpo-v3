@@ -1,22 +1,24 @@
 """Unit tests for the batch DPO orchestration flow."""
 
+import errno
 import io
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from src.batch_dpo_runner import build_run_matrix, main, run_batch_dpo
+from src.batch_dpo_runner import archive_margin_logs, build_run_matrix, main, run_batch_dpo
 
 
 def _batch_config() -> dict:
     return {
         "hf_username": "W-61",
         "cleanup": {
-            "delete_run_output": False,
+            "delete_run_output": True,
             "delete_policy_model_cache": False,
             "delete_dataset_cache": False,
-            "delete_completed_policy_model_cache": False,
+            "delete_completed_policy_model_cache": True,
         },
         "execution_order": "run_major",
         "trainers": [
@@ -120,6 +122,12 @@ def _margin_base_config() -> dict:
         },
         "margin_log": {
             "log_dir": "logs/placeholder",
+            "archive_after_run": True,
+            "archive_backend": "wandb_then_hf",
+            "delete_local_after_archive": True,
+            "wandb_artifact_name": "placeholder-margin-logs",
+            "hf_dataset_repo_id": "W-61/placeholder-margin-logs",
+            "hf_dataset_private": False,
         },
     }
 
@@ -195,6 +203,18 @@ class DPOBatchRunnerTest(unittest.TestCase):
         self.assertEqual(run_plans[0]["output_dir"], "batch_dpo_outputs/hh-helpful-base-qwen3-8b-beta-dpo")
 
         self.assertEqual(second_cfg["margin_log"]["log_dir"], "logs/hh-helpful-base-qwen3-8b-margin-dpo-margins")
+        self.assertTrue(second_cfg["margin_log"]["archive_after_run"])
+        self.assertEqual(second_cfg["margin_log"]["archive_backend"], "wandb_then_hf")
+        self.assertTrue(second_cfg["margin_log"]["delete_local_after_archive"])
+        self.assertEqual(
+            second_cfg["margin_log"]["wandb_artifact_name"],
+            "hh-helpful-base-qwen3-8b-margin-dpo-margin-logs",
+        )
+        self.assertEqual(
+            second_cfg["margin_log"]["hf_dataset_repo_id"],
+            "W-61/hh-helpful-base-qwen3-8b-margin-dpo-margin-logs",
+        )
+        self.assertFalse(second_cfg["margin_log"]["hf_dataset_private"])
         self.assertEqual(last_cfg["policy_name"], "W-61/hh-harmless-base-llama3-8b-sft")
         self.assertEqual(last_cfg["dataset"]["chat_template_name"], "llama3")
         self.assertEqual(
@@ -229,6 +249,7 @@ class DPOBatchRunnerTest(unittest.TestCase):
             patch("src.batch_dpo_runner.build_run_matrix", return_value=run_plans),
             patch("src.batch_dpo_runner.run_beta_dpo_training", side_effect=_fake_beta),
             patch("src.batch_dpo_runner.run_margin_dpo_training", side_effect=_fake_margin),
+            patch("src.batch_dpo_runner.archive_margin_logs", return_value=None),
             patch("src.batch_dpo_runner.cleanup_run_artifacts", side_effect=_fake_cleanup),
             patch(
                 "src.batch_dpo_runner.cleanup_completed_policy_cache",
@@ -241,16 +262,20 @@ class DPOBatchRunnerTest(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(
-            log[:8],
+            log[:12],
             [
                 "beta:hh-helpful-base-qwen3-8b-beta-dpo:batch_dpo_outputs/hh-helpful-base-qwen3-8b-beta-dpo",
                 "cleanup:hh-helpful-base-qwen3-8b-beta-dpo",
                 "margin:hh-helpful-base-qwen3-8b-margin-dpo:batch_dpo_outputs/hh-helpful-base-qwen3-8b-margin-dpo",
                 "cleanup:hh-helpful-base-qwen3-8b-margin-dpo",
+                "delete:W-61/hh-helpful-base-qwen3-8b-sft",
                 "beta:hh-harmless-base-qwen3-8b-beta-dpo:batch_dpo_outputs/hh-harmless-base-qwen3-8b-beta-dpo",
                 "cleanup:hh-harmless-base-qwen3-8b-beta-dpo",
                 "margin:hh-harmless-base-qwen3-8b-margin-dpo:batch_dpo_outputs/hh-harmless-base-qwen3-8b-margin-dpo",
                 "cleanup:hh-harmless-base-qwen3-8b-margin-dpo",
+                "delete:W-61/hh-harmless-base-qwen3-8b-sft",
+                "beta:hh-helpful-base-llama3-8b-beta-dpo:batch_dpo_outputs/hh-helpful-base-llama3-8b-beta-dpo",
+                "cleanup:hh-helpful-base-llama3-8b-beta-dpo",
             ],
         )
         self.assertEqual(
@@ -275,6 +300,7 @@ class DPOBatchRunnerTest(unittest.TestCase):
                 side_effect=RuntimeError("boom"),
             ),
             patch("src.batch_dpo_runner.run_margin_dpo_training") as mock_margin,
+            patch("src.batch_dpo_runner.archive_margin_logs", return_value=None),
             patch("src.batch_dpo_runner.cleanup_run_artifacts") as mock_cleanup,
             patch("src.batch_dpo_runner._distributed_barrier"),
             patch("src.batch_dpo_runner._is_main_process", return_value=True),
@@ -286,6 +312,274 @@ class DPOBatchRunnerTest(unittest.TestCase):
         self.assertFalse(mock_margin.called)
         self.assertFalse(mock_cleanup.called)
         self.assertIn("[DPO-BATCH] Failed hh-helpful-base / qwen3-8b / beta-dpo (1/8): boom", buffer.getvalue())
+
+    def test_archive_margin_logs_uses_wandb_then_deletes_local_logs(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_dir = Path(tmp_dir) / "margins"
+            log_dir.mkdir()
+            (log_dir / "margins.jsonl").write_text("{}", encoding="utf-8")
+            run_plan = {
+                "trainer_type": "margin",
+                "config": {
+                    "dpo_training": {
+                        "run_name": "margin-run",
+                        "report": "wandb-project",
+                    },
+                    "margin_log": {
+                        "log_dir": str(log_dir),
+                        "archive_after_run": True,
+                        "archive_backend": "wandb_then_hf",
+                        "delete_local_after_archive": True,
+                        "wandb_artifact_name": "margin-run-margin-logs",
+                        "hf_dataset_repo_id": "W-61/margin-run-margin-logs",
+                        "hf_dataset_private": False,
+                    },
+                },
+            }
+
+            with (
+                patch(
+                    "src.batch_dpo_runner._archive_margin_logs_to_wandb",
+                    return_value=True,
+                ) as mock_wandb,
+                patch(
+                    "src.batch_dpo_runner._archive_margin_logs_to_hf_dataset"
+                ) as mock_hf,
+            ):
+                error = archive_margin_logs(run_plan)
+
+        self.assertIsNone(error)
+        mock_wandb.assert_called_once()
+        mock_hf.assert_not_called()
+        self.assertFalse(log_dir.exists())
+
+    def test_archive_margin_logs_falls_back_to_hf_then_deletes_local_logs(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_dir = Path(tmp_dir) / "margins"
+            log_dir.mkdir()
+            (log_dir / "margins.jsonl").write_text("{}", encoding="utf-8")
+            run_plan = {
+                "trainer_type": "margin",
+                "config": {
+                    "dpo_training": {
+                        "run_name": "margin-run",
+                        "report": "wandb-project",
+                    },
+                    "margin_log": {
+                        "log_dir": str(log_dir),
+                        "archive_after_run": True,
+                        "archive_backend": "wandb_then_hf",
+                        "delete_local_after_archive": True,
+                        "wandb_artifact_name": "margin-run-margin-logs",
+                        "hf_dataset_repo_id": "W-61/margin-run-margin-logs",
+                        "hf_dataset_private": False,
+                    },
+                },
+            }
+
+            with (
+                patch(
+                    "src.batch_dpo_runner._archive_margin_logs_to_wandb",
+                    return_value=False,
+                ) as mock_wandb,
+                patch(
+                    "src.batch_dpo_runner._archive_margin_logs_to_hf_dataset",
+                    return_value=True,
+                ) as mock_hf,
+            ):
+                error = archive_margin_logs(run_plan)
+
+        self.assertIsNone(error)
+        mock_wandb.assert_called_once()
+        mock_hf.assert_called_once()
+        self.assertFalse(log_dir.exists())
+
+    def test_archive_margin_logs_skips_non_margin_runs(self):
+        run_plan = {
+            "trainer_type": "beta",
+            "config": {
+                "dpo_training": {"run_name": "beta-run"},
+                "margin_log": {"log_dir": "logs/unused"},
+            },
+        }
+
+        with (
+            patch("src.batch_dpo_runner._archive_margin_logs_to_wandb") as mock_wandb,
+            patch("src.batch_dpo_runner._archive_margin_logs_to_hf_dataset") as mock_hf,
+        ):
+            error = archive_margin_logs(run_plan)
+
+        self.assertIsNone(error)
+        mock_wandb.assert_not_called()
+        mock_hf.assert_not_called()
+
+    def test_run_batch_dpo_fails_when_margin_log_archive_fails(self):
+        run_plans = [
+            {
+                "trainer_type": "margin",
+                "trainer_slug": "margin-dpo",
+                "base_config_path": "config_margin_dpo.yaml",
+                "dataset_slug": "hh-helpful-base",
+                "model_slug": "qwen3-8b",
+                "policy_name": "W-61/hh-helpful-base-qwen3-8b-sft",
+                "ref_name": "W-61/hh-helpful-base-qwen3-8b-sft",
+                "hub_model_id": "W-61/hh-helpful-base-qwen3-8b-margin-dpo",
+                "output_dir": "batch_dpo_outputs/hh-helpful-base-qwen3-8b-margin-dpo",
+                "config": {
+                    "dataset": {"dataset_name": "Anthropic/hh-rlhf"},
+                    "dpo_training": {
+                        "run_name": "hh-helpful-base-qwen3-8b-margin-dpo",
+                        "save_dir": "batch_dpo_runs/hh-helpful-base-qwen3-8b-margin-dpo",
+                    },
+                    "margin_log": {
+                        "log_dir": "logs/hh-helpful-base-qwen3-8b-margin-dpo-margins",
+                        "delete_local_after_archive": True,
+                    },
+                },
+            }
+        ]
+        buffer = io.StringIO()
+
+        with (
+            patch("src.batch_dpo_runner.build_run_matrix", return_value=run_plans),
+            patch("src.batch_dpo_runner.run_margin_dpo_training"),
+            patch(
+                "src.batch_dpo_runner.archive_margin_logs",
+                return_value="Failed to archive margin logs for hh-helpful-base-qwen3-8b-margin-dpo.",
+            ),
+            patch("src.batch_dpo_runner.cleanup_run_artifacts") as mock_cleanup,
+            patch("src.batch_dpo_runner._distributed_barrier", return_value=None),
+            patch("src.batch_dpo_runner._is_main_process", return_value=True),
+            redirect_stdout(buffer),
+        ):
+            exit_code = run_batch_dpo(_batch_config(), config_dir=Path("/tmp/project"))
+
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(mock_cleanup.called)
+        self.assertIn("Failed to archive margin logs", buffer.getvalue())
+
+    def test_run_batch_dpo_fails_fast_on_oom_error(self):
+        run_plans = [
+            {
+                "trainer_type": "beta",
+                "trainer_slug": "beta-dpo",
+                "base_config_path": "config_beta_dpo.yaml",
+                "dataset_slug": "hh-helpful-base",
+                "model_slug": "qwen3-8b",
+                "policy_name": "W-61/hh-helpful-base-qwen3-8b-sft",
+                "ref_name": "W-61/hh-helpful-base-qwen3-8b-sft",
+                "hub_model_id": "W-61/hh-helpful-base-qwen3-8b-beta-dpo",
+                "output_dir": "batch_dpo_outputs/hh-helpful-base-qwen3-8b-beta-dpo",
+                "config": {
+                    "dataset": {"dataset_name": "Anthropic/hh-rlhf"},
+                    "dpo_training": {
+                        "run_name": "hh-helpful-base-qwen3-8b-beta-dpo",
+                        "save_dir": "batch_dpo_runs/hh-helpful-base-qwen3-8b-beta-dpo",
+                    },
+                },
+            }
+        ]
+        buffer = io.StringIO()
+
+        with (
+            patch("src.batch_dpo_runner.build_run_matrix", return_value=run_plans),
+            patch(
+                "src.batch_dpo_runner.run_beta_dpo_training",
+                side_effect=RuntimeError("CUDA out of memory. Tried to allocate 4.00 GiB"),
+            ),
+            patch("src.batch_dpo_runner.cleanup_run_artifacts") as mock_cleanup,
+            patch("src.batch_dpo_runner._distributed_barrier", return_value=None),
+            patch("src.batch_dpo_runner._is_main_process", return_value=True),
+            redirect_stdout(buffer),
+        ):
+            exit_code = run_batch_dpo(_batch_config(), config_dir=Path("/tmp/project"))
+
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(mock_cleanup.called)
+        self.assertIn("OOM: CUDA out of memory", buffer.getvalue())
+
+    def test_run_batch_dpo_fails_fast_on_disk_full_error(self):
+        run_plans = [
+            {
+                "trainer_type": "beta",
+                "trainer_slug": "beta-dpo",
+                "base_config_path": "config_beta_dpo.yaml",
+                "dataset_slug": "hh-helpful-base",
+                "model_slug": "qwen3-8b",
+                "policy_name": "W-61/hh-helpful-base-qwen3-8b-sft",
+                "ref_name": "W-61/hh-helpful-base-qwen3-8b-sft",
+                "hub_model_id": "W-61/hh-helpful-base-qwen3-8b-beta-dpo",
+                "output_dir": "batch_dpo_outputs/hh-helpful-base-qwen3-8b-beta-dpo",
+                "config": {
+                    "dataset": {"dataset_name": "Anthropic/hh-rlhf"},
+                    "dpo_training": {
+                        "run_name": "hh-helpful-base-qwen3-8b-beta-dpo",
+                        "save_dir": "batch_dpo_runs/hh-helpful-base-qwen3-8b-beta-dpo",
+                    },
+                },
+            }
+        ]
+        buffer = io.StringIO()
+
+        with (
+            patch("src.batch_dpo_runner.build_run_matrix", return_value=run_plans),
+            patch(
+                "src.batch_dpo_runner.run_beta_dpo_training",
+                side_effect=OSError(errno.ENOSPC, "No space left on device"),
+            ),
+            patch("src.batch_dpo_runner.cleanup_run_artifacts") as mock_cleanup,
+            patch("src.batch_dpo_runner._distributed_barrier", return_value=None),
+            patch("src.batch_dpo_runner._is_main_process", return_value=True),
+            redirect_stdout(buffer),
+        ):
+            exit_code = run_batch_dpo(_batch_config(), config_dir=Path("/tmp/project"))
+
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(mock_cleanup.called)
+        self.assertIn("Disk full: [Errno 28] No space left on device", buffer.getvalue())
+
+    def test_run_batch_dpo_fails_on_distributed_sync_error_without_local_exception(self):
+        run_plans = [
+            {
+                "trainer_type": "beta",
+                "trainer_slug": "beta-dpo",
+                "base_config_path": "config_beta_dpo.yaml",
+                "dataset_slug": "hh-helpful-base",
+                "model_slug": "qwen3-8b",
+                "policy_name": "W-61/hh-helpful-base-qwen3-8b-sft",
+                "ref_name": "W-61/hh-helpful-base-qwen3-8b-sft",
+                "hub_model_id": "W-61/hh-helpful-base-qwen3-8b-beta-dpo",
+                "output_dir": "batch_dpo_outputs/hh-helpful-base-qwen3-8b-beta-dpo",
+                "config": {
+                    "dataset": {"dataset_name": "Anthropic/hh-rlhf"},
+                    "dpo_training": {
+                        "run_name": "hh-helpful-base-qwen3-8b-beta-dpo",
+                        "save_dir": "batch_dpo_runs/hh-helpful-base-qwen3-8b-beta-dpo",
+                    },
+                },
+            }
+        ]
+        buffer = io.StringIO()
+
+        with (
+            patch("src.batch_dpo_runner.build_run_matrix", return_value=run_plans),
+            patch("src.batch_dpo_runner.run_beta_dpo_training"),
+            patch(
+                "src.batch_dpo_runner._gather_error_messages",
+                return_value=[
+                    "Distributed synchronization failed while collecting errors: peer reset"
+                ],
+            ),
+            patch("src.batch_dpo_runner.cleanup_run_artifacts") as mock_cleanup,
+            patch("src.batch_dpo_runner._distributed_barrier", return_value=None),
+            patch("src.batch_dpo_runner._is_main_process", return_value=True),
+            redirect_stdout(buffer),
+        ):
+            exit_code = run_batch_dpo(_batch_config(), config_dir=Path("/tmp/project"))
+
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(mock_cleanup.called)
+        self.assertIn("Distributed synchronization failed while collecting errors", buffer.getvalue())
 
 
 if __name__ == "__main__":

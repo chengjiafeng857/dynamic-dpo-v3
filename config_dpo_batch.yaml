@@ -1,10 +1,10 @@
 hf_username: W-61
 
 cleanup:
-  delete_run_output: false
+  delete_run_output: true
   delete_policy_model_cache: false
   delete_dataset_cache: false
-  delete_completed_policy_model_cache: false
+  delete_completed_policy_model_cache: true
 
 execution_order: run_major
 

@@ -194,6 +194,7 @@ def _build_common_dpo_config_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
     precision = str(config.get("precision", "fp32")).lower()
     wandb_project = dpo_train_args.get("wandb_project") or dpo_train_args.get("report")
     fsdp_options = _parse_dpo_fsdp_options(dpo_train_args)
+    save_strategy = str(dpo_train_args.get("save_strategy", "steps"))
     if fsdp_options["enabled"] and fsdp_options["state_dict_type"] is not None:
         os.environ["FSDP_STATE_DICT_TYPE"] = str(fsdp_options["state_dict_type"])
 
@@ -205,8 +206,7 @@ def _build_common_dpo_config_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
         "logging_steps": int(dpo_train_args["log_steps"]),
         "eval_strategy": str(dpo_train_args.get("eval_strategy", "steps")),
         "eval_steps": int(dpo_train_args["eval_steps"]),
-        "save_strategy": str(dpo_train_args.get("save_strategy", "steps")),
-        "save_steps": int(dpo_train_args["save_steps"]),
+        "save_strategy": save_strategy,
         "fp16": precision == "fp16",
         "bf16": precision == "bf16",
         "gradient_accumulation_steps": int(
@@ -219,6 +219,9 @@ def _build_common_dpo_config_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
         "remove_unused_columns": False,
         "output_dir": dpo_train_args["save_dir"],
     }
+
+    if save_strategy.lower() == "steps":
+        kwargs["save_steps"] = int(dpo_train_args["save_steps"])
 
     max_len = dataset_cfg.get("max_len")
     if max_len is not None:

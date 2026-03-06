@@ -2,6 +2,7 @@
 
 import argparse
 import copy
+import errno
 import gc
 import shutil
 from pathlib import Path
@@ -61,6 +62,12 @@ def _build_run_config(
     if trainer_type == "margin":
         margin_cfg = config.setdefault("margin_log", {})
         margin_cfg["log_dir"] = str(Path("logs") / f"{run_name}-margins")
+        margin_cfg["archive_after_run"] = True
+        margin_cfg["archive_backend"] = "wandb_then_hf"
+        margin_cfg["delete_local_after_archive"] = True
+        margin_cfg["wandb_artifact_name"] = f"{run_name}-margin-logs"
+        margin_cfg["hf_dataset_repo_id"] = f"{hf_username}/{run_name}-margin-logs"
+        margin_cfg["hf_dataset_private"] = False
 
     return config
 
@@ -152,14 +159,15 @@ def _is_main_process() -> bool:
         return True
 
 
-def _distributed_barrier() -> None:
+def _distributed_barrier() -> str | None:
     try:
         import torch.distributed as dist
 
         if dist.is_available() and dist.is_initialized():
             dist.barrier()
     except Exception:
-        return
+        return "Distributed synchronization failed at barrier."
+    return None
 
 
 def _gather_error_messages(local_error: str | None) -> List[str]:
@@ -172,8 +180,13 @@ def _gather_error_messages(local_error: str | None) -> List[str]:
         gathered: List[str | None] = [None] * dist.get_world_size()
         dist.all_gather_object(gathered, local_error)
         return [message for message in gathered if message]
-    except Exception:
-        return [local_error] if local_error else []
+    except Exception as exc:
+        messages = [local_error] if local_error else []
+        messages.append(
+            "Distributed synchronization failed while collecting errors: "
+            f"{exc}"
+        )
+        return messages
 
 
 def _clear_cuda_memory() -> None:
@@ -222,6 +235,143 @@ def _delete_hf_cache_entries(repo_ids: Iterable[str]) -> None:
         delete_strategy.execute()
     except Exception as exc:
         print(f"[DPO-BATCH] Warning: failed to clean Hugging Face cache: {exc}")
+
+
+def _format_run_error(exc: Exception) -> str:
+    message = str(exc).strip() or exc.__class__.__name__
+    lowered = message.lower()
+    if isinstance(exc, OSError):
+        if exc.errno == errno.ENOSPC or "no space left on device" in lowered:
+            return f"Disk full: {message}"
+        if exc.errno == errno.EDQUOT or "disk quota exceeded" in lowered:
+            return f"Disk quota exceeded: {message}"
+    if exc.__class__.__name__ == "OutOfMemoryError" or "out of memory" in lowered:
+        return f"OOM: {message}"
+    return message
+
+
+def _archive_margin_logs_to_wandb(
+    *,
+    log_dir: Path,
+    artifact_name: str,
+) -> bool:
+    try:
+        import wandb
+    except Exception as exc:
+        print(f"[DPO-BATCH] Warning: W&B unavailable for margin log archival: {exc}")
+        return False
+
+    if wandb.run is None:
+        print("[DPO-BATCH] Warning: no active W&B run for margin log archival.")
+        return False
+
+    try:
+        artifact = wandb.Artifact(artifact_name, type="dataset")
+        artifact.add_dir(str(log_dir), name=log_dir.name)
+        logged_artifact = wandb.run.log_artifact(artifact)
+        wait = getattr(logged_artifact, "wait", None)
+        if callable(wait):
+            wait()
+        return True
+    except Exception as exc:
+        print(f"[DPO-BATCH] Warning: failed to archive margin logs to W&B: {exc}")
+        return False
+
+
+def _archive_margin_logs_to_hf_dataset(
+    *,
+    log_dir: Path,
+    repo_id: str,
+    private: bool,
+    run_name: str,
+) -> bool:
+    try:
+        from huggingface_hub import HfApi
+    except Exception as exc:
+        print(
+            "[DPO-BATCH] Warning: Hugging Face Hub unavailable for margin log archival: "
+            f"{exc}"
+        )
+        return False
+
+    try:
+        api = HfApi()
+        api.create_repo(
+            repo_id=repo_id,
+            repo_type="dataset",
+            private=private,
+            exist_ok=True,
+        )
+        api.upload_folder(
+            repo_id=repo_id,
+            repo_type="dataset",
+            folder_path=str(log_dir),
+            path_in_repo=log_dir.name,
+            commit_message=f"Upload margin logs for {run_name}",
+        )
+        return True
+    except Exception as exc:
+        print(
+            "[DPO-BATCH] Warning: failed to archive margin logs to Hugging Face: "
+            f"{exc}"
+        )
+        return False
+
+
+def _delete_local_margin_logs(log_dir: Path) -> None:
+    if not log_dir.exists():
+        return
+    shutil.rmtree(log_dir)
+
+
+def archive_margin_logs(run_plan: Dict[str, Any]) -> str | None:
+    if run_plan["trainer_type"] != "margin":
+        return None
+
+    margin_cfg = run_plan["config"].get("margin_log", {})
+    if not bool(margin_cfg.get("archive_after_run", False)):
+        return None
+
+    log_dir = Path(str(margin_cfg.get("log_dir", "")))
+    if not log_dir.exists():
+        return f"Margin log directory missing after successful run: {log_dir}"
+
+    archive_backend = str(margin_cfg.get("archive_backend", "wandb_then_hf"))
+    if archive_backend != "wandb_then_hf":
+        return f"Unsupported margin_log.archive_backend: {archive_backend}"
+
+    dpo_cfg = run_plan["config"].get("dpo_training", {})
+    wandb_project = dpo_cfg.get("wandb_project") or dpo_cfg.get("report")
+    archived = False
+    if wandb_project:
+        archived = _archive_margin_logs_to_wandb(
+            log_dir=log_dir,
+            artifact_name=str(
+                margin_cfg.get(
+                    "wandb_artifact_name",
+                    f"{dpo_cfg.get('run_name', 'dpo')}-margin-logs",
+                )
+            ),
+        )
+
+    if not archived:
+        archived = _archive_margin_logs_to_hf_dataset(
+            log_dir=log_dir,
+            repo_id=str(margin_cfg["hf_dataset_repo_id"]),
+            private=bool(margin_cfg.get("hf_dataset_private", False)),
+            run_name=str(dpo_cfg.get("run_name", "dpo")),
+        )
+
+    if not archived:
+        return f"Failed to archive margin logs for {dpo_cfg.get('run_name', 'dpo')}."
+
+    if bool(margin_cfg.get("delete_local_after_archive", False)):
+        try:
+            _delete_local_margin_logs(log_dir)
+        except Exception as exc:
+            return f"Failed to delete local margin logs after archival: {_format_run_error(exc)}"
+
+    return None
 
 
 def _resolve_cache_cleanup_flags(cleanup_config: Dict[str, Any]) -> tuple[bool, bool, bool]:
@@ -328,7 +478,7 @@ def run_batch_dpo(batch_config: Dict[str, Any], *, config_dir: Path) -> int:
         try:
             _run_training_job(run_plan)
         except Exception as exc:
-            train_error = str(exc)
+            train_error = _format_run_error(exc)
 
         train_errors = _gather_error_messages(train_error)
         if train_errors:
@@ -337,25 +487,49 @@ def run_batch_dpo(batch_config: Dict[str, Any], *, config_dir: Path) -> int:
             _distributed_barrier()
             return 1
 
+        post_run_error = None
         if is_main_process:
             print(f"[DPO-BATCH] Completed {run_label}")
-            cleanup_run_artifacts(run_plan=run_plan, cleanup_config=cleanup_config)
-            print(f"[DPO-BATCH] Cleanup complete for {run_label}")
-            has_future_same_policy = any(
-                future_run_plan["policy_name"] == run_plan["policy_name"]
-                for future_run_plan in run_plans[index:]
-            )
-            if not has_future_same_policy:
-                cleanup_completed_policy_cache(
-                    completed_policy_name=str(run_plan["policy_name"]),
-                    cleanup_config=cleanup_config,
-                )
-                if bool(cleanup_config.get("delete_completed_policy_model_cache", False)):
-                    print(
-                        "[DPO-BATCH] Deleted completed policy model cache for "
-                        f"{run_plan['policy_name']}"
+            try:
+                archive_error = archive_margin_logs(run_plan)
+                if archive_error:
+                    post_run_error = archive_error
+                else:
+                    cleanup_run_artifacts(run_plan=run_plan, cleanup_config=cleanup_config)
+                    print(f"[DPO-BATCH] Cleanup complete for {run_label}")
+                    has_future_same_policy = any(
+                        future_run_plan["policy_name"] == run_plan["policy_name"]
+                        for future_run_plan in run_plans[index:]
                     )
-        _distributed_barrier()
+                    if not has_future_same_policy:
+                        cleanup_completed_policy_cache(
+                            completed_policy_name=str(run_plan["policy_name"]),
+                            cleanup_config=cleanup_config,
+                        )
+                        if bool(
+                            cleanup_config.get(
+                                "delete_completed_policy_model_cache", False
+                            )
+                        ):
+                            print(
+                                "[DPO-BATCH] Deleted completed policy model cache for "
+                                f"{run_plan['policy_name']}"
+                            )
+            except Exception as exc:
+                post_run_error = _format_run_error(exc)
+
+        post_run_errors = _gather_error_messages(post_run_error)
+        if post_run_errors:
+            if is_main_process:
+                print(f"[DPO-BATCH] Failed {run_label}: {post_run_errors[0]}")
+            _distributed_barrier()
+            return 1
+
+        barrier_error = _distributed_barrier()
+        if isinstance(barrier_error, str) and barrier_error:
+            if is_main_process:
+                print(f"[DPO-BATCH] Failed {run_label}: {barrier_error}")
+            return 1
 
     if is_main_process:
         print(f"[DPO-BATCH] All {len(run_plans)} DPO runs completed successfully.")

@@ -288,6 +288,24 @@ class DPOCliTest(unittest.TestCase):
             ["LlamaDecoderLayer"],
         )
 
+    def test_main_beta_dpo_supports_save_strategy_no_without_save_steps(self):
+        config = _base_dpo_config()
+        config["dpo_training"]["save_strategy"] = "no"
+        config["dpo_training"]["save_only_model"] = True
+        del config["dpo_training"]["save_steps"]
+
+        trainer, _ = self._run_main(
+            main_beta_dpo,
+            config,
+            "src.trainers.beta_dpo_trainer.BetaDPOTrainer",
+            ["train-beta-dpo", "--config", "config_beta_dpo.yaml", "--output_dir", "beta_out"],
+        )
+
+        self.assertTrue(trainer.train_called)
+        self.assertEqual(trainer.saved_path, "beta_out/final")
+        self.assertEqual(str(trainer.args.save_strategy), "SaveStrategy.NO")
+        self.assertTrue(trainer.args.save_only_model)
+
     def test_main_beta_dpo_invalid_fsdp_auto_wrap_policy_raises_value_error(self):
         config = _base_dpo_config()
         config["dpo_training"]["fsdp"] = _dpo_fsdp_config()
