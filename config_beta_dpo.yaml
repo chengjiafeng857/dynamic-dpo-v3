@@ -12,6 +12,7 @@ dataset:
   subset: train[:30%]
   val_ratio: 0.1
   seed: 42
+  max_len: 512
 
 dpo_training:
   epochs: 1

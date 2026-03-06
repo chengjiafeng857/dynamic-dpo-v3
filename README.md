@@ -204,6 +204,8 @@ The dedicated example configs are:
 
 `dpo_training.fsdp` follows the same schema used by `sft_training.fsdp`, and DPO uses `dpo_training.gradient_checkpointing` for the `DPOConfig` checkpointing toggle.
 
+`dataset.max_len` is used as `DPOConfig.max_length` for HH DPO runs.
+
 Current v1 DPO FSDP keeps a live frozen `ref_model` path (no precomputed reference log-probs), so multi-GPU memory usage can still be high.
 
 ## Useful Validation Commands

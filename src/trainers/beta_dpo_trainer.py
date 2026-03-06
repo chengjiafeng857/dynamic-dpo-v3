@@ -81,6 +81,7 @@ class BetaDPOTrainer(DPOTrainer):
         # define initial r_gam_mean: 0.0 and r_gap_std: 1.0
         self.r_gap_mean = torch.zeros((), device=device)
         self.r_gap_std = torch.ones((), device=device)
+        self._gap_std_eps = 1e-6
 
     def _is_distributed(self) -> bool:
         return dist.is_available() and dist.is_initialized() and self.accelerator.num_processes > 1
@@ -95,7 +96,7 @@ class BetaDPOTrainer(DPOTrainer):
         """
         m = float(self.args.ema_momentum)
         batch_r_mean = r_gap_global.mean()
-        batch_r_std = r_gap_global.std()
+        batch_r_std = r_gap_global.std(unbiased=False)
 
         self.r_gap_mean.mul_(m).add_(batch_r_mean, alpha=1.0 - m)
         self.r_gap_std.mul_(m).add_(batch_r_std, alpha=1.0 - m)
@@ -118,11 +119,14 @@ class BetaDPOTrainer(DPOTrainer):
             global_mask: shape [N_global], float tensor in {0,1}
         """
         r_mean = self.r_gap_mean
-        r_std = self.r_gap_std
+        r_std = torch.clamp(self.r_gap_std, min=self._gap_std_eps)
 
         weight = torch.exp(-0.5 * ((r_gap_global - r_mean) / r_std).pow(2))
+        weight = torch.nan_to_num(weight, nan=0.0, posinf=0.0, neginf=0.0)
+        if float(weight.sum()) <= 0.0:
+            weight = torch.ones_like(weight)
         N = weight.numel()
-        k = int(N * float(self.args.rho))
+        k = max(1, min(N, int(N * float(self.args.rho))))
 
         if self.args.sync_global_mask and self._is_distributed():
             if self.accelerator.is_main_process:
@@ -148,7 +152,10 @@ class BetaDPOTrainer(DPOTrainer):
             where r_used = mean(r[selected by global_mask])
         """
         select = global_mask.bool()
-        r_used = r_gap_global[select].mean()
+        if bool(select.any()):
+            r_used = r_gap_global[select].mean()
+        else:
+            r_used = r_gap_global.mean()
         beta_used = beta * (1.0 + float(self.args.alpha) * (r_used - self.r_gap_mean))
         beta_used = torch.clamp(beta_used, min=float(self.args.beta_min))
         return beta_used

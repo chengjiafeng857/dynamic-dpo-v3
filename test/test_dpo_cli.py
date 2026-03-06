@@ -24,6 +24,7 @@ def _base_dpo_config() -> dict:
             "subset": "train",
             "val_ratio": 0.5,
             "seed": 7,
+            "max_len": 64,
         },
         "dpo_training": {
             "epochs": 1,
@@ -209,6 +210,7 @@ class DPOCliTest(unittest.TestCase):
         self.assertEqual(trainer.args.ema_momentum, 0.8)
         self.assertEqual(trainer.args.beta_min, 0.05)
         self.assertFalse(trainer.args.sync_global_mask)
+        self.assertEqual(trainer.args.max_length, 64)
         self.assertEqual(set(trainer.train_dataset.column_names), {"prompt", "chosen", "rejected"})
         self.assertEqual(set(trainer.eval_dataset.column_names), {"prompt", "chosen", "rejected"})
         self.assertTrue(ref_model.eval_called)
@@ -235,6 +237,7 @@ class DPOCliTest(unittest.TestCase):
         self.assertEqual(trainer.saved_path, "margin_out/final")
         self.assertIsInstance(trainer.args, DPOConfig)
         self.assertEqual(trainer.margin_log_path, "logs/custom_margins")
+        self.assertEqual(trainer.args.max_length, 64)
         self.assertEqual(set(trainer.train_dataset.column_names), {"prompt", "chosen", "rejected"})
         self.assertEqual(set(trainer.eval_dataset.column_names), {"prompt", "chosen", "rejected"})
 
@@ -311,6 +314,18 @@ class DPOCliTest(unittest.TestCase):
             "dpo_training\\.fsdp\\.transformer_layer_cls_to_wrap and "
             "dpo_training\\.fsdp\\.min_num_params are mutually exclusive",
         ):
+            self._run_main(
+                main_beta_dpo,
+                config,
+                "src.trainers.beta_dpo_trainer.BetaDPOTrainer",
+                ["train-beta-dpo", "--config", "config_beta_dpo.yaml", "--output_dir", "beta_out"],
+            )
+
+    def test_main_beta_dpo_invalid_dataset_max_len_raises_value_error(self):
+        config = _base_dpo_config()
+        config["dataset"]["max_len"] = 0
+
+        with self.assertRaisesRegex(ValueError, "dataset\\.max_len must be > 0"):
             self._run_main(
                 main_beta_dpo,
                 config,
