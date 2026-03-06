@@ -275,11 +275,24 @@ def _maybe_init_wandb(config: Dict[str, Any]) -> None:
 
     import wandb
 
-    wandb.init(
+    run_name = str(dpo_train_args.get("run_name", "dpo"))
+    run = wandb.init(
         project=str(wandb_project),
-        name=dpo_train_args.get("run_name", "dpo"),
+        name=run_name,
         config=config,
     )
+    project_url = getattr(run, "project_url", None)
+    if callable(project_url):
+        project_url = project_url()
+    run_url = getattr(run, "url", None)
+    if callable(run_url):
+        run_url = run_url()
+
+    print(f"[DPO] wandb project={wandb_project} run_name={run_name}")
+    if project_url:
+        print(f"[DPO] wandb project_url={project_url}")
+    if run_url:
+        print(f"[DPO] wandb run_url={run_url}")
 
 
 def _finalize_dpo_training(

@@ -1,7 +1,9 @@
 """Unit tests for HH-based Beta, Margin, and Epsilon DPO CLI entry points."""
 
+import io
 import sys
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from datasets import Dataset
@@ -140,6 +142,24 @@ class _DummyTrainer:
 
     def save_model(self, path):
         self.saved_path = path
+
+
+class _DummyWandbRun:
+    def __init__(self, project_url: str, run_url: str):
+        self.project_url = project_url
+        self.url = run_url
+
+
+class _DummyWandbModule:
+    def __init__(self):
+        self.init_kwargs = None
+
+    def init(self, **kwargs):
+        self.init_kwargs = kwargs
+        return _DummyWandbRun(
+            project_url="https://wandb.example/project",
+            run_url="https://wandb.example/run",
+        )
 
 
 class DPOCliTest(unittest.TestCase):
@@ -329,6 +349,53 @@ class DPOCliTest(unittest.TestCase):
 
         self.assertTrue(trainer.train_called)
         self.assertEqual(trainer.saved_path, "e_out/final")
+
+    def test_main_e_dpo_initializes_wandb_with_project_and_run_name_and_prints_urls(self):
+        config = _base_dpo_config()
+        config["dpo_training"]["wandb_project"] = "wandb_dpo_project"
+        config["e_dpo"] = {
+            "beta": 0.15,
+            "epsilon": 0.02,
+        }
+        stdout = io.StringIO()
+        wandb_module = _DummyWandbModule()
+
+        with patch.dict(sys.modules, {"wandb": wandb_module}):
+            with redirect_stdout(stdout):
+                trainer, _ = self._run_main(
+                    main_e_dpo,
+                    config,
+                    "src.trainers.e_dpo_trainer.EpsilonDPOTrainer",
+                    [
+                        "train-e-dpo",
+                        "--config",
+                        "config_e_dpo.yaml",
+                        "--output_dir",
+                        "e_out",
+                    ],
+                )
+
+        self.assertTrue(trainer.train_called)
+        self.assertEqual(
+            wandb_module.init_kwargs["project"],
+            "wandb_dpo_project",
+        )
+        self.assertEqual(
+            wandb_module.init_kwargs["name"],
+            "hh-dpo-test",
+        )
+        self.assertIn(
+            "[DPO] wandb project=wandb_dpo_project run_name=hh-dpo-test",
+            stdout.getvalue(),
+        )
+        self.assertIn(
+            "[DPO] wandb project_url=https://wandb.example/project",
+            stdout.getvalue(),
+        )
+        self.assertIn(
+            "[DPO] wandb run_url=https://wandb.example/run",
+            stdout.getvalue(),
+        )
 
     def test_main_beta_dpo_sets_fsdp_args_and_save_only_model_safety_override(self):
         config = _base_dpo_config()
