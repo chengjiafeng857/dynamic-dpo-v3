@@ -5,6 +5,8 @@ precision: bf16
 dataset:
   dataset_name: HuggingFaceH4/ultrachat_200k
   chat_template_name: llama3
+  # Optional shared Hugging Face cache path for multi-node runs.
+  # cache_dir: /shared/hf-cache
   subset: train_sft
   eval_subset: test_sft
   val_ratio: 0.1
@@ -30,6 +32,12 @@ sft_training:
   max_length: 2048
   packing: true
   completion_only_loss: false
+  # Optional debug/stability overrides. Omit to keep existing defaults.
+  # dataset_num_proc: 4
+  # packing_strategy: bfd
+  # padding_free: true
+  # eval_packing: false
+  # max_steps: 200
   wandb_project: final-version-sft
   run_name: ultrachat-llama-3-8b-sft
   save_dir: /scratch/gpfs/DANQIC/ym0081/checkpoints_new/ultrachat-llama-3-8b-sft
