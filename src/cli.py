@@ -335,7 +335,7 @@ def run_beta_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
 
     beta_cfg = config.get("beta_dpo", {})
     training_args = BetaDPOConfig(
-        **(config),
+        **_build_common_dpo_config_kwargs(config),
         beta=float(beta_cfg.get("beta", 0.1)),
         rho=float(beta_cfg.get("rho", 0.8)),
         alpha=float(beta_cfg.get("alpha", 1.0)),
