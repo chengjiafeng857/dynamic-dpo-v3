@@ -27,7 +27,9 @@ def _is_main_process() -> bool:
     )
 
 
-def _build_dpo_parser(*, description: str, default_config: str, default_output_dir: str):
+def _build_dpo_parser(
+    *, description: str, default_config: str, default_output_dir: str
+):
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--config", type=str, default=default_config)
     parser.add_argument("--output_dir", type=str, default=default_output_dir)
@@ -94,16 +96,22 @@ def _parse_dpo_fsdp_options(dpo_cfg: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(fsdp_cfg, dict) or not bool(fsdp_cfg.get("enabled", False)):
         return {"enabled": False, "args": {}, "state_dict_type": None}
 
-    auto_wrap_policy = str(fsdp_cfg.get("auto_wrap_policy", "transformer_based_wrap")).lower()
+    auto_wrap_policy = str(
+        fsdp_cfg.get("auto_wrap_policy", "transformer_based_wrap")
+    ).lower()
     if auto_wrap_policy not in {"transformer_based_wrap", "size_based_wrap", "no_wrap"}:
         raise ValueError(
             "dpo_training.fsdp.auto_wrap_policy must be one of "
             "'transformer_based_wrap', 'size_based_wrap', or 'no_wrap'."
         )
 
-    mode_tokens = [token for token in str(fsdp_cfg.get("mode", "full_shard")).split() if token]
+    mode_tokens = [
+        token for token in str(fsdp_cfg.get("mode", "full_shard")).split() if token
+    ]
     if not mode_tokens:
-        raise ValueError("dpo_training.fsdp.mode must contain at least one FSDP option.")
+        raise ValueError(
+            "dpo_training.fsdp.mode must contain at least one FSDP option."
+        )
 
     has_auto_wrap = "auto_wrap" in mode_tokens
     if auto_wrap_policy == "no_wrap":
@@ -141,7 +149,9 @@ def _parse_dpo_fsdp_options(dpo_cfg: Dict[str, Any]) -> Dict[str, Any]:
 
     if auto_wrap_policy == "transformer_based_wrap" and layer_cls is not None:
         if isinstance(layer_cls, str):
-            layer_names = [name.strip() for name in layer_cls.split(",") if name.strip()]
+            layer_names = [
+                name.strip() for name in layer_cls.split(",") if name.strip()
+            ]
         elif isinstance(layer_cls, list):
             layer_names = [str(name).strip() for name in layer_cls if str(name).strip()]
         else:
@@ -156,9 +166,7 @@ def _parse_dpo_fsdp_options(dpo_cfg: Dict[str, Any]) -> Dict[str, Any]:
             min_num_params if min_num_params is not None else 100_000_000
         )
 
-    state_dict_type = str(
-        fsdp_cfg.get("state_dict_type", "FULL_STATE_DICT")
-    ).upper()
+    state_dict_type = str(fsdp_cfg.get("state_dict_type", "FULL_STATE_DICT")).upper()
     valid_state_dict_types = {
         "FULL_STATE_DICT",
         "LOCAL_STATE_DICT",
@@ -201,7 +209,9 @@ def _build_common_dpo_config_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
         "save_steps": int(dpo_train_args["save_steps"]),
         "fp16": precision == "fp16",
         "bf16": precision == "bf16",
-        "gradient_accumulation_steps": int(dpo_train_args.get("gradient_accumulation", 1)),
+        "gradient_accumulation_steps": int(
+            dpo_train_args.get("gradient_accumulation", 1)
+        ),
         "max_grad_norm": float(dpo_train_args.get("max_grad_norm", 1.0)),
         "warmup_steps": int(dpo_train_args.get("warmup_steps", 0)),
         "report_to": ["wandb"] if wandb_project else [],
@@ -218,7 +228,9 @@ def _build_common_dpo_config_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
         kwargs["max_length"] = max_length
 
     if "gradient_checkpointing" in dpo_train_args:
-        kwargs["gradient_checkpointing"] = bool(dpo_train_args["gradient_checkpointing"])
+        kwargs["gradient_checkpointing"] = bool(
+            dpo_train_args["gradient_checkpointing"]
+        )
 
     optional_fields = (
         "save_total_limit",
@@ -263,7 +275,9 @@ def _maybe_init_wandb(config: Dict[str, Any]) -> None:
     )
 
 
-def _finalize_dpo_training(trainer: Any, cli_output_dir: str, dpo_train_args: Dict[str, Any]) -> None:
+def _finalize_dpo_training(
+    trainer: Any, cli_output_dir: str, dpo_train_args: Dict[str, Any]
+) -> None:
     trainer.train()
     trainer.save_model(os.path.join(cli_output_dir, "final"))
 
@@ -321,7 +335,7 @@ def run_beta_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
 
     beta_cfg = config.get("beta_dpo", {})
     training_args = BetaDPOConfig(
-        **_build_common_dpo_config_kwargs(config),
+        **(config),
         beta=float(beta_cfg.get("beta", 0.1)),
         rho=float(beta_cfg.get("rho", 0.8)),
         alpha=float(beta_cfg.get("alpha", 1.0)),
