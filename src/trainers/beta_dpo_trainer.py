@@ -170,6 +170,12 @@ class BetaDPOTrainer(DPOTrainer):
         end = start + local_bsz
         return global_vec[start:end]
 
+    def _gather_training_tensor(self, local_tensor: torch.Tensor) -> torch.Tensor:
+        """Gather the full per-rank tensor without metric-time truncation."""
+        if not self._is_distributed():
+            return local_tensor
+        return self.accelerator.gather(local_tensor)
+
     def _compute_loss(self, model, inputs, return_outputs):
         """
             Core TRL hook. We override it to implement beta-DPO.
@@ -218,7 +224,7 @@ class BetaDPOTrainer(DPOTrainer):
         # (2) reward discrenpancy
         # r_gap = (policy_chosen_logps - ref_chosen_logps) - (policy_rejected_logps - ref_rejected_logps)
         r_gap_local = (chosen_logps - ref_chosen_logps - rejected_logps + ref_rejected_logps).detach()
-        r_gap_global = self.accelerator.gather_for_metrics(r_gap_local)
+        r_gap_global = self._gather_training_tensor(r_gap_local)
 
         # (3) EMA update on reward gap mean and std
         if mode == "train":
