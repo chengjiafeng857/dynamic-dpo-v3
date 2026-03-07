@@ -426,7 +426,7 @@ def run_e_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
         args=training_args,
         train_dataset=train_ds,
         eval_dataset=eval_ds,
-        processing_class=tokenizer,
+        processing_class=None,
     )
     _finalize_dpo_training(trainer, output_dir, config["dpo_training"])
 
