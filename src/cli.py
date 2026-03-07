@@ -403,7 +403,7 @@ def run_margin_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
 
 def run_e_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
     """Run one Epsilon DPO training job from an in-memory config."""
-    from .trainers.e_dpo_trainer import EpsilonDPOConfig, EpsilonDPOTrainer
+    from ..reference.archive.e_dpo_trainer import EpsilonDPOConfig, EpsilonDPOTrainer
 
     policy, ref_model, tokenizer, policy_name = _load_policy_ref_and_tokenizer(config)
     train_ds, eval_ds = _build_hh_dpo_datasets(config, tokenizer, policy_name)

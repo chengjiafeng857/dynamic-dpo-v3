@@ -11,7 +11,7 @@ from trl import DPOConfig
 
 from src.cli import main_beta_dpo, main_e_dpo, main_margin_dpo
 from src.trainers.beta_dpo_trainer import BetaDPOConfig
-from src.trainers.e_dpo_trainer import EpsilonDPOConfig
+from reference.archive.e_dpo_trainer import EpsilonDPOConfig
 
 
 def _base_dpo_config() -> dict:
