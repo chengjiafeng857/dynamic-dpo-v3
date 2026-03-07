@@ -36,6 +36,7 @@ NNODES="${NNODES:-1}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-e_dpo_hh_outputs}"
 LOG_ROOT="${LOG_ROOT:-logs}"
 REPO_PREFIX="${REPO_PREFIX:-}"
+OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 
 if [[ -z "${HF_NAMESPACE}" ]]; then
   echo "Missing hf_namespace." >&2
@@ -133,10 +134,13 @@ PY
   fi
 
   echo "[E-DPO-HH] Starting ${dataset_data_dir} -> ${hub_model_id}"
+  echo "[E-DPO-HH] Console log: ${run_log}"
+  echo "[E-DPO-HH] Worker logs: ${worker_log_dir}"
 
   PYTHONUNBUFFERED=1 \
   PYTHONFAULTHANDLER=1 \
   TOKENIZERS_PARALLELISM=false \
+  OMP_NUM_THREADS="${OMP_NUM_THREADS}" \
   NCCL_ASYNC_ERROR_HANDLING=1 \
   NCCL_DEBUG=WARN \
   TRANSFORMERS_VERBOSITY=warning \
@@ -149,7 +153,7 @@ PY
     --rdzv-backend=c10d \
     --max-restarts=0 \
     --log-dir "${worker_log_dir}" \
-    --redirects 3 \
+    --tee 3 \
     --local-ranks-filter=0 \
     scripts/run_e_dpo.py \
     --config "${temp_config}" \
