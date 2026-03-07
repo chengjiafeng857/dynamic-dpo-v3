@@ -11,7 +11,7 @@ from trl import DPOConfig
 
 from src.cli import main_beta_dpo, main_e_dpo, main_margin_dpo
 from src.trainers.beta_dpo_trainer import BetaDPOConfig
-from reference.archive.e_dpo_trainer import EpsilonDPOConfig
+from src.trainers.epsilon_dpo_trainer import EpsilonDPOConfig
 
 
 def _base_dpo_config() -> dict:
@@ -314,7 +314,7 @@ class DPOCliTest(unittest.TestCase):
         trainer, ref_model = self._run_main(
             main_e_dpo,
             config,
-            "src.trainers.e_dpo_trainer.EpsilonDPOTrainer",
+            "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
             ["train-e-dpo", "--config", "config_e_dpo.yaml", "--output_dir", "e_out"],
         )
 
@@ -324,8 +324,10 @@ class DPOCliTest(unittest.TestCase):
         self.assertEqual(trainer.args.beta, 0.15)
         self.assertEqual(trainer.args.epsilon, 0.02)
         self.assertEqual(trainer.args.max_length, 64)
+        self.assertEqual(trainer.args.output_dir, "e_out")
         self.assertEqual(set(trainer.train_dataset.column_names), {"prompt", "chosen", "rejected"})
         self.assertEqual(set(trainer.eval_dataset.column_names), {"prompt", "chosen", "rejected"})
+        self.assertIsInstance(trainer.processing_class, _DummyTokenizer)
         self.assertTrue(ref_model.eval_called)
         self.assertFalse(ref_model.parameters()[0].requires_grad_value)
 
@@ -335,7 +337,7 @@ class DPOCliTest(unittest.TestCase):
         trainer, _ = self._run_main(
             main_e_dpo,
             config,
-            "src.trainers.e_dpo_trainer.EpsilonDPOTrainer",
+            "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
             [
                 "train-e-dpo",
                 "--config",
@@ -365,7 +367,7 @@ class DPOCliTest(unittest.TestCase):
                 trainer, _ = self._run_main(
                     main_e_dpo,
                     config,
-                    "src.trainers.e_dpo_trainer.EpsilonDPOTrainer",
+                    "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
                     [
                         "train-e-dpo",
                         "--config",
@@ -454,7 +456,7 @@ class DPOCliTest(unittest.TestCase):
         trainer, _ = self._run_main(
             main_e_dpo,
             config,
-            "src.trainers.e_dpo_trainer.EpsilonDPOTrainer",
+            "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
             ["train-e-dpo", "--config", "config_e_dpo.yaml", "--output_dir", "e_out"],
         )
 
@@ -520,6 +522,6 @@ class DPOCliTest(unittest.TestCase):
             self._run_main(
                 main_e_dpo,
                 config,
-                "src.trainers.e_dpo_trainer.EpsilonDPOTrainer",
+                "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
                 ["train-e-dpo", "--config", "config_e_dpo.yaml", "--output_dir", "e_out"],
             )

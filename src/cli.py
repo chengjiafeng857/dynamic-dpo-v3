@@ -403,14 +403,17 @@ def run_margin_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
 
 def run_e_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
     """Run one Epsilon DPO training job from an in-memory config."""
-    from ..reference.archive.e_dpo_trainer import EpsilonDPOConfig, EpsilonDPOTrainer
+    from .trainers.epsilon_dpo_trainer import EpsilonDPOConfig, EpsilonDPOTrainer
 
     policy, ref_model, tokenizer, policy_name = _load_policy_ref_and_tokenizer(config)
     train_ds, eval_ds = _build_hh_dpo_datasets(config, tokenizer, policy_name)
 
     e_dpo_cfg = config.get("e_dpo", {})
+    common_kwargs = _build_common_dpo_config_kwargs(config)
+    # Keep all epsilon-DPO artifacts under the CLI-selected output directory.
+    common_kwargs["output_dir"] = output_dir
     training_args = EpsilonDPOConfig(
-        **_build_common_dpo_config_kwargs(config),
+        **common_kwargs,
         beta=float(e_dpo_cfg.get("beta", 0.1)),
         epsilon=float(e_dpo_cfg.get("epsilon", 0.01)),
     )
@@ -423,7 +426,7 @@ def run_e_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
         args=training_args,
         train_dataset=train_ds,
         eval_dataset=eval_ds,
-        processing_class=None,
+        processing_class=tokenizer,
     )
     _finalize_dpo_training(trainer, output_dir, config["dpo_training"])
 
