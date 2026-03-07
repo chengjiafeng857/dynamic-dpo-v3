@@ -37,7 +37,7 @@ def _base_dpo_config() -> dict:
             "gradient_accumulation": 2,
             "max_grad_norm": 1.0,
             "warmup_steps": 0,
-            "report": None,
+            "wandb_project": None,
             "run_name": "hh-dpo-test",
             "save_dir": "tmp_dpo",
         },

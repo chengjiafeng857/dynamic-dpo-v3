@@ -26,7 +26,7 @@ dpo_training:
   max_grad_norm: 1.0
   warmup_steps: 60
   gradient_checkpointing: true
-  report: null
+  wandb_project: dynamic-dpo-batch
   run_name: hh-margin-dpo
   save_dir: margin_dpo_checkpoints
   save_strategy: "no"
@@ -54,8 +54,6 @@ dpo_training:
 margin_log:
   log_dir: logs/margins
   archive_after_run: true
-  archive_backend: wandb_then_hf
   delete_local_after_archive: true
-  wandb_artifact_name: hh-margin-dpo-margin-logs
   hf_dataset_repo_id: W-61/hh-margin-dpo-margin-logs
   hf_dataset_private: false

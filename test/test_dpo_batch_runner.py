@@ -123,9 +123,7 @@ def _margin_base_config() -> dict:
         "margin_log": {
             "log_dir": "logs/placeholder",
             "archive_after_run": True,
-            "archive_backend": "wandb_then_hf",
             "delete_local_after_archive": True,
-            "wandb_artifact_name": "placeholder-margin-logs",
             "hf_dataset_repo_id": "W-61/placeholder-margin-logs",
             "hf_dataset_private": False,
         },
@@ -204,12 +202,7 @@ class DPOBatchRunnerTest(unittest.TestCase):
 
         self.assertEqual(second_cfg["margin_log"]["log_dir"], "logs/hh-helpful-base-qwen3-8b-margin-dpo-margins")
         self.assertTrue(second_cfg["margin_log"]["archive_after_run"])
-        self.assertEqual(second_cfg["margin_log"]["archive_backend"], "wandb_then_hf")
         self.assertTrue(second_cfg["margin_log"]["delete_local_after_archive"])
-        self.assertEqual(
-            second_cfg["margin_log"]["wandb_artifact_name"],
-            "hh-helpful-base-qwen3-8b-margin-dpo-margin-logs",
-        )
         self.assertEqual(
             second_cfg["margin_log"]["hf_dataset_repo_id"],
             "W-61/hh-helpful-base-qwen3-8b-margin-dpo-margin-logs",
@@ -255,8 +248,8 @@ class DPOBatchRunnerTest(unittest.TestCase):
                 "src.batch_dpo_runner.cleanup_completed_policy_cache",
                 side_effect=_fake_cleanup_completed_policy_cache,
             ),
-            patch("src.batch_dpo_runner._distributed_barrier"),
-            patch("src.batch_dpo_runner._is_main_process", return_value=True),
+            patch("src.batch_dpo_runner.distributed_barrier"),
+            patch("src.batch_dpo_runner.is_main_process", return_value=True),
         ):
             exit_code = run_batch_dpo(batch_config, config_dir=Path("/tmp/project"))
 
@@ -302,8 +295,8 @@ class DPOBatchRunnerTest(unittest.TestCase):
             patch("src.batch_dpo_runner.run_margin_dpo_training") as mock_margin,
             patch("src.batch_dpo_runner.archive_margin_logs", return_value=None),
             patch("src.batch_dpo_runner.cleanup_run_artifacts") as mock_cleanup,
-            patch("src.batch_dpo_runner._distributed_barrier"),
-            patch("src.batch_dpo_runner._is_main_process", return_value=True),
+            patch("src.batch_dpo_runner.distributed_barrier"),
+            patch("src.batch_dpo_runner.is_main_process", return_value=True),
             redirect_stdout(buffer),
         ):
             exit_code = run_batch_dpo(_batch_config(), config_dir=Path("/tmp/project"))
@@ -313,7 +306,7 @@ class DPOBatchRunnerTest(unittest.TestCase):
         self.assertFalse(mock_cleanup.called)
         self.assertIn("[DPO-BATCH] Failed hh-helpful-base / qwen3-8b / beta-dpo (1/8): boom", buffer.getvalue())
 
-    def test_archive_margin_logs_uses_wandb_then_deletes_local_logs(self):
+    def test_archive_margin_logs_deletes_local_logs_after_hf_upload(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             log_dir = Path(tmp_dir) / "margins"
             log_dir.mkdir()
@@ -323,74 +316,25 @@ class DPOBatchRunnerTest(unittest.TestCase):
                 "config": {
                     "dpo_training": {
                         "run_name": "margin-run",
-                        "report": "wandb-project",
+                        "wandb_project": "wandb-project",
                     },
                     "margin_log": {
                         "log_dir": str(log_dir),
                         "archive_after_run": True,
-                        "archive_backend": "wandb_then_hf",
                         "delete_local_after_archive": True,
-                        "wandb_artifact_name": "margin-run-margin-logs",
                         "hf_dataset_repo_id": "W-61/margin-run-margin-logs",
                         "hf_dataset_private": False,
                     },
                 },
             }
 
-            with (
-                patch(
-                    "src.batch_dpo_runner._archive_margin_logs_to_wandb",
-                    return_value=True,
-                ) as mock_wandb,
-                patch(
-                    "src.batch_dpo_runner._archive_margin_logs_to_hf_dataset"
-                ) as mock_hf,
-            ):
+            with patch(
+                "src.batch_dpo_runner._archive_margin_logs_to_hf_dataset",
+                return_value=True,
+            ) as mock_hf:
                 error = archive_margin_logs(run_plan)
 
         self.assertIsNone(error)
-        mock_wandb.assert_called_once()
-        mock_hf.assert_not_called()
-        self.assertFalse(log_dir.exists())
-
-    def test_archive_margin_logs_falls_back_to_hf_then_deletes_local_logs(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            log_dir = Path(tmp_dir) / "margins"
-            log_dir.mkdir()
-            (log_dir / "margins.jsonl").write_text("{}", encoding="utf-8")
-            run_plan = {
-                "trainer_type": "margin",
-                "config": {
-                    "dpo_training": {
-                        "run_name": "margin-run",
-                        "report": "wandb-project",
-                    },
-                    "margin_log": {
-                        "log_dir": str(log_dir),
-                        "archive_after_run": True,
-                        "archive_backend": "wandb_then_hf",
-                        "delete_local_after_archive": True,
-                        "wandb_artifact_name": "margin-run-margin-logs",
-                        "hf_dataset_repo_id": "W-61/margin-run-margin-logs",
-                        "hf_dataset_private": False,
-                    },
-                },
-            }
-
-            with (
-                patch(
-                    "src.batch_dpo_runner._archive_margin_logs_to_wandb",
-                    return_value=False,
-                ) as mock_wandb,
-                patch(
-                    "src.batch_dpo_runner._archive_margin_logs_to_hf_dataset",
-                    return_value=True,
-                ) as mock_hf,
-            ):
-                error = archive_margin_logs(run_plan)
-
-        self.assertIsNone(error)
-        mock_wandb.assert_called_once()
         mock_hf.assert_called_once()
         self.assertFalse(log_dir.exists())
 
@@ -403,14 +347,10 @@ class DPOBatchRunnerTest(unittest.TestCase):
             },
         }
 
-        with (
-            patch("src.batch_dpo_runner._archive_margin_logs_to_wandb") as mock_wandb,
-            patch("src.batch_dpo_runner._archive_margin_logs_to_hf_dataset") as mock_hf,
-        ):
+        with patch("src.batch_dpo_runner._archive_margin_logs_to_hf_dataset") as mock_hf:
             error = archive_margin_logs(run_plan)
 
         self.assertIsNone(error)
-        mock_wandb.assert_not_called()
         mock_hf.assert_not_called()
 
     def test_run_batch_dpo_fails_when_margin_log_archive_fails(self):
@@ -448,8 +388,8 @@ class DPOBatchRunnerTest(unittest.TestCase):
                 return_value="Failed to archive margin logs for hh-helpful-base-qwen3-8b-margin-dpo.",
             ),
             patch("src.batch_dpo_runner.cleanup_run_artifacts") as mock_cleanup,
-            patch("src.batch_dpo_runner._distributed_barrier", return_value=None),
-            patch("src.batch_dpo_runner._is_main_process", return_value=True),
+            patch("src.batch_dpo_runner.distributed_barrier", return_value=None),
+            patch("src.batch_dpo_runner.is_main_process", return_value=True),
             redirect_stdout(buffer),
         ):
             exit_code = run_batch_dpo(_batch_config(), config_dir=Path("/tmp/project"))
@@ -488,8 +428,8 @@ class DPOBatchRunnerTest(unittest.TestCase):
                 side_effect=RuntimeError("CUDA out of memory. Tried to allocate 4.00 GiB"),
             ),
             patch("src.batch_dpo_runner.cleanup_run_artifacts") as mock_cleanup,
-            patch("src.batch_dpo_runner._distributed_barrier", return_value=None),
-            patch("src.batch_dpo_runner._is_main_process", return_value=True),
+            patch("src.batch_dpo_runner.distributed_barrier", return_value=None),
+            patch("src.batch_dpo_runner.is_main_process", return_value=True),
             redirect_stdout(buffer),
         ):
             exit_code = run_batch_dpo(_batch_config(), config_dir=Path("/tmp/project"))
@@ -528,8 +468,8 @@ class DPOBatchRunnerTest(unittest.TestCase):
                 side_effect=OSError(errno.ENOSPC, "No space left on device"),
             ),
             patch("src.batch_dpo_runner.cleanup_run_artifacts") as mock_cleanup,
-            patch("src.batch_dpo_runner._distributed_barrier", return_value=None),
-            patch("src.batch_dpo_runner._is_main_process", return_value=True),
+            patch("src.batch_dpo_runner.distributed_barrier", return_value=None),
+            patch("src.batch_dpo_runner.is_main_process", return_value=True),
             redirect_stdout(buffer),
         ):
             exit_code = run_batch_dpo(_batch_config(), config_dir=Path("/tmp/project"))
@@ -565,14 +505,14 @@ class DPOBatchRunnerTest(unittest.TestCase):
             patch("src.batch_dpo_runner.build_run_matrix", return_value=run_plans),
             patch("src.batch_dpo_runner.run_beta_dpo_training"),
             patch(
-                "src.batch_dpo_runner._gather_error_messages",
+                "src.batch_dpo_runner.gather_error_messages",
                 return_value=[
                     "Distributed synchronization failed while collecting errors: peer reset"
                 ],
             ),
             patch("src.batch_dpo_runner.cleanup_run_artifacts") as mock_cleanup,
-            patch("src.batch_dpo_runner._distributed_barrier", return_value=None),
-            patch("src.batch_dpo_runner._is_main_process", return_value=True),
+            patch("src.batch_dpo_runner.distributed_barrier", return_value=None),
+            patch("src.batch_dpo_runner.is_main_process", return_value=True),
             redirect_stdout(buffer),
         ):
             exit_code = run_batch_dpo(_batch_config(), config_dir=Path("/tmp/project"))

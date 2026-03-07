@@ -26,7 +26,7 @@ dpo_training:
   max_grad_norm: 1.0
   warmup_steps: 60
   gradient_checkpointing: true
-  report: null
+  wandb_project: dynamic-dpo-batch
   run_name: hh-beta-dpo
   save_dir: beta_dpo_checkpoints
   save_strategy: "no"

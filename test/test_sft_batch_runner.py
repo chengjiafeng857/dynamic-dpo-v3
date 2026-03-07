@@ -293,15 +293,15 @@ class SFTBatchRunnerTest(unittest.TestCase):
         trainer = _DummyTrainer([], "unused")
 
         with (
-            patch("src.batch_sft_runner._finish_wandb_run"),
+            patch("src.batch_sft_runner.finish_wandb_run"),
             patch("src.batch_sft_runner.gc.collect"),
-            patch("src.batch_sft_runner._clear_cuda_memory"),
+            patch("src.batch_sft_runner.clear_cuda_memory"),
             patch("src.batch_sft_runner.shutil.rmtree") as mock_rmtree,
-            patch(
-                "src.batch_sft_runner.scan_cache_dir",
-                return_value=_CacheInfo(log),
-            ),
+            patch("src.batch_sft_runner.delete_hf_cache_entries") as mock_delete_cache,
         ):
+            mock_delete_cache.side_effect = lambda repo_ids, log_prefix: log.extend(
+                [("delete", tuple(repo_ids)), ("execute", tuple(repo_ids))]
+            )
             cleanup_run_artifacts(
                 trainer=trainer,
                 run_config=run_config,
@@ -317,8 +317,14 @@ class SFTBatchRunnerTest(unittest.TestCase):
             ignore_errors=True,
         )
         self.assertIsNone(trainer.model)
-        self.assertEqual(log[0], ("delete", ("model-hash", "dataset-hash")))
-        self.assertEqual(log[1], ("execute", ("model-hash", "dataset-hash")))
+        self.assertEqual(
+            log[0],
+            ("delete", ("meta-llama/Meta-Llama-3-8B", "Anthropic/hh-rlhf")),
+        )
+        self.assertEqual(
+            log[1],
+            ("execute", ("meta-llama/Meta-Llama-3-8B", "Anthropic/hh-rlhf")),
+        )
 
     def test_cleanup_run_artifacts_preserves_hf_cache_by_default(self):
         run_config = {
@@ -329,11 +335,11 @@ class SFTBatchRunnerTest(unittest.TestCase):
         }
 
         with (
-            patch("src.batch_sft_runner._finish_wandb_run"),
+            patch("src.batch_sft_runner.finish_wandb_run"),
             patch("src.batch_sft_runner.gc.collect"),
-            patch("src.batch_sft_runner._clear_cuda_memory"),
+            patch("src.batch_sft_runner.clear_cuda_memory"),
             patch("src.batch_sft_runner.shutil.rmtree"),
-            patch("src.batch_sft_runner._delete_hf_cache_entries") as mock_delete_cache,
+            patch("src.batch_sft_runner.delete_hf_cache_entries") as mock_delete_cache,
         ):
             cleanup_run_artifacts(
                 trainer=_DummyTrainer([], "unused"),
@@ -353,11 +359,11 @@ class SFTBatchRunnerTest(unittest.TestCase):
         buffer = io.StringIO()
 
         with (
-            patch("src.batch_sft_runner._finish_wandb_run"),
+            patch("src.batch_sft_runner.finish_wandb_run"),
             patch("src.batch_sft_runner.gc.collect"),
-            patch("src.batch_sft_runner._clear_cuda_memory"),
+            patch("src.batch_sft_runner.clear_cuda_memory"),
             patch("src.batch_sft_runner.shutil.rmtree"),
-            patch("src.batch_sft_runner._delete_hf_cache_entries") as mock_delete_cache,
+            patch("src.batch_sft_runner.delete_hf_cache_entries") as mock_delete_cache,
             redirect_stdout(buffer),
         ):
             cleanup_run_artifacts(
@@ -374,13 +380,15 @@ class SFTBatchRunnerTest(unittest.TestCase):
         self.assertIn("Skipping policy model cache cleanup", buffer.getvalue())
 
     def test_cleanup_completed_policy_cache_runs_only_when_enabled(self):
-        with patch("src.batch_sft_runner._delete_hf_cache_entries") as mock_delete_cache:
+        with patch("src.batch_sft_runner.delete_hf_cache_entries") as mock_delete_cache:
             cleanup_completed_policy_cache(
                 completed_policy_name="meta-llama/Meta-Llama-3-8B",
                 cleanup_config={"delete_completed_policy_model_cache": True},
             )
 
-        mock_delete_cache.assert_called_once_with(["meta-llama/Meta-Llama-3-8B"])
+        mock_delete_cache.assert_called_once_with(
+            ["meta-llama/Meta-Llama-3-8B"], log_prefix="SFT-BATCH"
+        )
 
     def test_run_batch_sft_deletes_completed_model_cache_after_last_use(self):
         cleanup_config = _batch_config()["cleanup"] | {

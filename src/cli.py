@@ -192,7 +192,7 @@ def _build_common_dpo_config_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
     dpo_train_args = config["dpo_training"]
     dataset_cfg = config.get("dataset", {})
     precision = str(config.get("precision", "fp32")).lower()
-    wandb_project = dpo_train_args.get("wandb_project") or dpo_train_args.get("report")
+    wandb_project = dpo_train_args.get("wandb_project")
     fsdp_options = _parse_dpo_fsdp_options(dpo_train_args)
     save_strategy = str(dpo_train_args.get("save_strategy", "steps"))
     if fsdp_options["enabled"] and fsdp_options["state_dict_type"] is not None:
@@ -265,7 +265,7 @@ def _build_common_dpo_config_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
 
 def _maybe_init_wandb(config: Dict[str, Any]) -> None:
     dpo_train_args = config["dpo_training"]
-    wandb_project = dpo_train_args.get("wandb_project") or dpo_train_args.get("report")
+    wandb_project = dpo_train_args.get("wandb_project")
     if not wandb_project or not _is_main_process():
         return
 
