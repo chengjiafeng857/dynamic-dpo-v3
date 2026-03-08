@@ -352,6 +352,7 @@ class DPOCliTest(unittest.TestCase):
 
         self.assertEqual(trainer.args.hub_model_id, "user/e-dpo-test")
         self.assertTrue(trainer.push_to_hub_called)
+        self.assertIsNone(trainer.saved_path)
         self.assertIsNone(trainer.model.pushed_to_hub)
 
     def test_main_e_dpo_accepts_torchrun_local_rank_argument(self):

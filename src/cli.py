@@ -300,7 +300,6 @@ def _finalize_dpo_training(
     trainer: Any, cli_output_dir: str, dpo_train_args: Dict[str, Any]
 ) -> None:
     trainer.train()
-    trainer.save_model(os.path.join(cli_output_dir, "final"))
 
     hub_model_id = dpo_train_args.get("hub_model_id")
     if hub_model_id:
@@ -309,6 +308,9 @@ def _finalize_dpo_training(
         trainer.push_to_hub()
         if _is_main_process():
             print(f"Model uploaded successfully to: https://huggingface.co/{hub_model_id}")
+        return
+
+    trainer.save_model(os.path.join(cli_output_dir, "final"))
 
 
 def main_sft():
