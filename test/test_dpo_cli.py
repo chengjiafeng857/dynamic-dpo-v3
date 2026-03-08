@@ -11,7 +11,7 @@ import trl
 from datasets import Dataset
 from trl import DPOConfig
 
-from src.cli import main_beta_dpo, main_e_dpo, main_margin_dpo
+from src.cli import _finalize_dpo_training, main_beta_dpo, main_e_dpo, main_margin_dpo
 from src.data.ultrafeedback_dataset import build_ultrafeedback_preference_dataset
 from src.trainers.beta_dpo_trainer import BetaDPOConfig
 from src.trainers.epsilon_dpo_trainer import EpsilonDPOConfig
@@ -185,6 +185,8 @@ class _DummyTrainer:
         self.saved_path = None
         self.saved_paths = []
         self.push_to_hub_called = False
+        self.is_fsdp_enabled = False
+        self.accelerator = None
         _DummyTrainer.instances.append(self)
 
     def train(self):
@@ -196,6 +198,26 @@ class _DummyTrainer:
 
     def push_to_hub(self):
         self.push_to_hub_called = True
+
+
+class _DummyFSDPPlugin:
+    def __init__(self, state_dict_type):
+        self.state_dict_type = state_dict_type
+        self.set_state_dict_type_calls = []
+
+    def set_state_dict_type(self, state_dict_type=None):
+        self.state_dict_type = state_dict_type
+        self.set_state_dict_type_calls.append(state_dict_type)
+
+
+class _DummyAcceleratorState:
+    def __init__(self, fsdp_plugin):
+        self.fsdp_plugin = fsdp_plugin
+
+
+class _DummyAccelerator:
+    def __init__(self, fsdp_plugin):
+        self.state = _DummyAcceleratorState(fsdp_plugin)
 
 
 class _DummyWandbRun:
@@ -400,18 +422,81 @@ class DPOCliTest(unittest.TestCase):
             "epsilon": 0.02,
         }
 
-        trainer, _ = self._run_main(
-            main_e_dpo,
-            config,
-            "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
-            ["train-e-dpo", "--config", "config_e_dpo.yaml"],
-        )
+        with (
+            patch("src.cli.create_repo") as create_repo_mock,
+            patch("src.cli.upload_folder") as upload_folder_mock,
+        ):
+            trainer, _ = self._run_main(
+                main_e_dpo,
+                config,
+                "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
+                ["train-e-dpo", "--config", "config_e_dpo.yaml"],
+            )
 
         self.assertEqual(trainer.args.hub_model_id, "user/e-dpo-test")
-        self.assertTrue(trainer.push_to_hub_called)
-        self.assertEqual(trainer.saved_paths, ["tmp_dpo/final", "tmp_dpo"])
-        self.assertEqual(trainer.saved_path, "tmp_dpo")
+        self.assertFalse(trainer.push_to_hub_called)
+        self.assertEqual(trainer.saved_paths, ["tmp_dpo/final"])
+        self.assertEqual(trainer.saved_path, "tmp_dpo/final")
         self.assertIsNone(trainer.model.pushed_to_hub)
+        create_repo_mock.assert_called_once_with(
+            "user/e-dpo-test",
+            token=None,
+            private=None,
+            exist_ok=True,
+        )
+        upload_folder_mock.assert_called_once_with(
+            repo_id="user/e-dpo-test",
+            folder_path="tmp_dpo/final",
+            commit_message="End of training",
+            token=None,
+            revision=None,
+        )
+
+    def test_finalize_dpo_training_switches_fsdp_to_full_state_dict_for_final_save(self):
+        trainer = _DummyTrainer(
+            model=_DummyModel(),
+            ref_model=_DummyModel(),
+            args=DPOConfig(output_dir="tmp_dpo", hub_model_id="user/e-dpo-test"),
+            train_dataset=Dataset.from_list([]),
+            eval_dataset=Dataset.from_list([]),
+        )
+        fsdp_plugin = _DummyFSDPPlugin("SHARDED_STATE_DICT")
+        trainer.is_fsdp_enabled = True
+        trainer.accelerator = _DummyAccelerator(fsdp_plugin)
+
+        with (
+            patch("src.cli._is_main_process", return_value=True),
+            patch("src.cli.create_repo") as create_repo_mock,
+            patch("src.cli.upload_folder") as upload_folder_mock,
+        ):
+            _finalize_dpo_training(
+                trainer,
+                {
+                    "save_dir": "tmp_dpo",
+                    "hub_model_id": "user/e-dpo-test",
+                },
+            )
+
+        self.assertEqual(trainer.saved_paths, ["tmp_dpo/final"])
+        self.assertFalse(trainer.push_to_hub_called)
+        self.assertEqual(
+            fsdp_plugin.set_state_dict_type_calls,
+            ["FULL_STATE_DICT", "SHARDED_STATE_DICT"],
+        )
+        self.assertEqual(fsdp_plugin.state_dict_type, "SHARDED_STATE_DICT")
+        create_repo_mock.assert_called_once_with(
+            "user/e-dpo-test",
+            token=None,
+            private=None,
+            exist_ok=True,
+        )
+        upload_folder_mock.assert_called_once_with(
+            repo_id="user/e-dpo-test",
+            folder_path="tmp_dpo/final",
+            commit_message="End of training",
+            token=None,
+            revision=None,
+        )
 
     def test_main_e_dpo_requires_save_dir_in_config(self):
         config = _base_dpo_config()
