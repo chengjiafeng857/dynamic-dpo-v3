@@ -133,12 +133,58 @@ if errors:
 PY
 }
 
+read_save_dir() {
+  local config_path="$1"
+
+  uv run python - "$config_path" <<'PY'
+import sys
+import yaml
+
+config_path = sys.argv[1]
+
+with open(config_path, "r", encoding="utf-8") as config_file:
+    config = yaml.safe_load(config_file)
+
+if not isinstance(config, dict):
+    raise SystemExit(f"Top-level YAML must be a mapping: {config_path}")
+
+dpo_training = config.get("dpo_training")
+if not isinstance(dpo_training, dict):
+    raise SystemExit("Expected 'dpo_training' mapping in config")
+
+save_dir = dpo_training.get("save_dir")
+if not isinstance(save_dir, str) or not save_dir.strip():
+    raise SystemExit(f"Missing or invalid dpo_training.save_dir in {config_path}")
+
+print(save_dir)
+PY
+}
+
+cleanup_checkpoints() {
+  local label="$1"
+  local checkpoint_dir="$2"
+
+  if [[ -z "$checkpoint_dir" || "$checkpoint_dir" == "." || "$checkpoint_dir" == "/" ]]; then
+    echo "[${label}] Refusing to remove unsafe checkpoint dir: ${checkpoint_dir}" >&2
+    exit 1
+  fi
+
+  if [[ -d "$checkpoint_dir" ]]; then
+    rm -rf "$checkpoint_dir"
+    echo "[${label}] removed checkpoint_dir=${checkpoint_dir}"
+  else
+    echo "[${label}] checkpoint_dir not found; nothing to remove: ${checkpoint_dir}"
+  fi
+}
+
 run_one() {
   local label="$1"
   local config_path="$2"
   local base_run_name="$3"
   local run_name
   run_name="$(compute_run_name "$base_run_name")"
+  local checkpoint_dir
+  checkpoint_dir="$(read_save_dir "$config_path")"
 
   local output_dir="${OUTPUT_ROOT}/${run_name}"
   if [[ -e "$output_dir" ]]; then
@@ -156,6 +202,7 @@ run_one() {
   echo "[${label}] run_name=${run_name}"
   echo "[${label}] hub_model_id=${hub_model_id}"
   echo "[${label}] output_dir=${output_dir}"
+  echo "[${label}] checkpoint_dir=${checkpoint_dir}"
   echo "[${label}] torchrun_log_dir=${torchrun_log_dir}"
   echo "[${label}] run_log=${run_log}"
 
@@ -171,6 +218,8 @@ run_one() {
     scripts/run_e_dpo.py \
     --config "$config_path" \
     --output_dir "$output_dir" 2>&1 | tee "$run_log"
+
+  cleanup_checkpoints "$label" "$checkpoint_dir"
 }
 
 run_one "helpful" "$HELPFUL_CONFIG" "hh-helpful-base-e-dpo"
