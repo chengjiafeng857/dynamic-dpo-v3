@@ -355,6 +355,24 @@ class DPOCliTest(unittest.TestCase):
         self.assertIsNone(trainer.saved_path)
         self.assertIsNone(trainer.model.pushed_to_hub)
 
+    def test_main_e_dpo_does_not_require_save_dir_when_output_dir_is_cli_supplied(self):
+        config = _base_dpo_config()
+        config["dpo_training"].pop("save_dir")
+        config["e_dpo"] = {
+            "beta": 0.15,
+            "epsilon": 0.02,
+        }
+
+        trainer, _ = self._run_main(
+            main_e_dpo,
+            config,
+            "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
+            ["train-e-dpo", "--config", "config_e_dpo.yaml", "--output_dir", "e_out"],
+        )
+
+        self.assertEqual(trainer.args.output_dir, "e_out")
+        self.assertEqual(trainer.saved_path, "e_out/final")
+
     def test_main_e_dpo_accepts_torchrun_local_rank_argument(self):
         config = _base_dpo_config()
 
