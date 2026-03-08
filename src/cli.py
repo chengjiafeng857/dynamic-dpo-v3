@@ -357,16 +357,21 @@ def _finalize_dpo_training(trainer: Any, dpo_train_args: Dict[str, Any]) -> None
 
     save_dir = str(dpo_train_args["save_dir"])
     final_output_dir = os.path.join(save_dir, "final")
-    trainer.save_model(final_output_dir)
-
     hub_model_id = dpo_train_args.get("hub_model_id")
     if hub_model_id:
-        trainer.save_model(save_dir)
+        original_output_dir = trainer.args.output_dir
+        trainer.args.output_dir = final_output_dir
         if _is_main_process():
             print(f"\nPushing model to HuggingFace Hub: {hub_model_id}")
-        trainer.push_to_hub()
+        try:
+            trainer.push_to_hub()
+        finally:
+            trainer.args.output_dir = original_output_dir
         if _is_main_process():
             print(f"Model uploaded successfully to: https://huggingface.co/{hub_model_id}")
+        return
+
+    trainer.save_model(final_output_dir)
 
 
 def main_sft():

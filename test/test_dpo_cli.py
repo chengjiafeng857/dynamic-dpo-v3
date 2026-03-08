@@ -196,6 +196,7 @@ class _DummyTrainer:
 
     def push_to_hub(self):
         self.push_to_hub_called = True
+        self.save_model(self.args.output_dir)
 
 
 class _DummyWandbRun:
@@ -409,8 +410,8 @@ class DPOCliTest(unittest.TestCase):
 
         self.assertEqual(trainer.args.hub_model_id, "user/e-dpo-test")
         self.assertTrue(trainer.push_to_hub_called)
-        self.assertEqual(trainer.saved_paths, ["tmp_dpo/final", "tmp_dpo"])
-        self.assertEqual(trainer.saved_path, "tmp_dpo")
+        self.assertEqual(trainer.saved_paths, ["tmp_dpo/final"])
+        self.assertEqual(trainer.saved_path, "tmp_dpo/final")
         self.assertIsNone(trainer.model.pushed_to_hub)
 
     def test_main_e_dpo_requires_save_dir_in_config(self):
