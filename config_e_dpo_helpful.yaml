@@ -9,7 +9,7 @@ dataset:
   generated_data: false
   chat_template: true
   chat_template_name: llama3
-  subset: train[:100%]
+  subset: train[:10%]
   val_ratio: 0.1
   seed: 42
   max_len: 512
@@ -28,7 +28,7 @@ dpo_training:
   gradient_checkpointing: true
   wandb_project: e_dpo
   report: null
-  run_name: hh-e-dpo
+  run_name: hh-helpful-base-e-dpo
   hub_model_id: jackf857/hh-helpful-base-e-dpo
   save_dir: e_dpo_checkpoints
   save_strategy: steps

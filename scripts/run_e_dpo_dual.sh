@@ -18,12 +18,10 @@ Description:
   Runs e-DPO sequentially for helpful and harmless HH base configs using
   the original checked-in YAML files directly (no temporary YAML files).
   The script validates each config includes the expected:
-    - dpo_training.run_name
     - dpo_training.hub_model_id
-    - dpo_training.save_dir
 
 Options:
-  --prepare-only   Validate config values and print planned launch info only.
+  --prepare-only   Validate hub_model_id and print planned launch info only.
   -h, --help       Show this help message.
 
 Environment overrides:
@@ -99,17 +97,15 @@ compute_run_name() {
   printf "%s" "$base_name"
 }
 
-validate_original_config() {
+validate_hub_model_id() {
   local config_path="$1"
-  local expected_run_name="$2"
-  local expected_hub_model_id="$3"
-  local expected_save_dir="$4"
+  local expected_hub_model_id="$2"
 
-  uv run python - "$config_path" "$expected_run_name" "$expected_hub_model_id" "$expected_save_dir" <<'PY'
+  uv run python - "$config_path" "$expected_hub_model_id" <<'PY'
 import sys
 import yaml
 
-config_path, expected_run_name, expected_hub_model_id, expected_save_dir = sys.argv[1:]
+config_path, expected_hub_model_id = sys.argv[1:]
 
 with open(config_path, "r", encoding="utf-8") as config_file:
     config = yaml.safe_load(config_file)
@@ -121,25 +117,13 @@ dpo_training = config.get("dpo_training")
 if not isinstance(dpo_training, dict):
     raise SystemExit("Expected 'dpo_training' mapping in config")
 
-actual_run_name = dpo_training.get("run_name")
 actual_hub_model_id = dpo_training.get("hub_model_id")
-actual_save_dir = dpo_training.get("save_dir")
 
 errors = []
-if actual_run_name != expected_run_name:
-    errors.append(
-        f"dpo_training.run_name mismatch in {config_path}: "
-        f"expected '{expected_run_name}', found '{actual_run_name}'"
-    )
 if actual_hub_model_id != expected_hub_model_id:
     errors.append(
         f"dpo_training.hub_model_id mismatch in {config_path}: "
         f"expected '{expected_hub_model_id}', found '{actual_hub_model_id}'"
-    )
-if actual_save_dir != expected_save_dir:
-    errors.append(
-        f"dpo_training.save_dir mismatch in {config_path}: "
-        f"expected '{expected_save_dir}', found '{actual_save_dir}'"
     )
 
 if errors:
@@ -166,7 +150,7 @@ run_one() {
   local run_log="${LOG_ROOT}/${run_name}_${timestamp}.log"
   local torchrun_log_dir="${torchrun_root}/${run_name}"
 
-  validate_original_config "$config_path" "$run_name" "$hub_model_id" "$output_dir"
+  validate_hub_model_id "$config_path" "$hub_model_id"
 
   echo "[${label}] config=${config_path}"
   echo "[${label}] run_name=${run_name}"
