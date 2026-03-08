@@ -59,6 +59,30 @@ def _resolve_dpo_hub_upload_source(dpo_train_args: Dict[str, Any]) -> str:
     return upload_source
 
 
+def _save_dpo_final_model(trainer: Any, final_output_dir: str) -> None:
+    fsdp_plugin = None
+    original_state_dict_type = None
+    switched_state_dict_type = False
+
+    if bool(getattr(trainer, "is_fsdp_enabled", False)):
+        accelerator = getattr(trainer, "accelerator", None)
+        accelerator_state = getattr(accelerator, "state", None)
+        fsdp_plugin = getattr(accelerator_state, "fsdp_plugin", None)
+        original_state_dict_type = getattr(fsdp_plugin, "state_dict_type", None)
+        if (
+            fsdp_plugin is not None
+            and "FULL_STATE_DICT" not in str(original_state_dict_type)
+        ):
+            fsdp_plugin.set_state_dict_type("FULL_STATE_DICT")
+            switched_state_dict_type = True
+
+    try:
+        trainer.save_model(final_output_dir)
+    finally:
+        if fsdp_plugin is not None and switched_state_dict_type:
+            fsdp_plugin.set_state_dict_type(original_state_dict_type)
+
+
 def _load_policy_ref_and_tokenizer(
     config: Dict[str, Any],
 ) -> Tuple[Any, Any, Any, str]:
@@ -377,10 +401,10 @@ def _finalize_dpo_training(trainer: Any, dpo_train_args: Dict[str, Any]) -> None
     final_output_dir = os.path.join(save_dir, "final")
     hub_model_id = dpo_train_args.get("hub_model_id")
     hub_upload_source = _resolve_dpo_hub_upload_source(dpo_train_args)
+    final_save_dir = final_output_dir if hub_upload_source == "final" else save_dir
     upload_dir = final_output_dir if hub_upload_source == "final" else save_dir
 
-    if hub_upload_source == "final":
-        trainer.save_model(final_output_dir)
+    _save_dpo_final_model(trainer, final_save_dir)
     _maybe_distributed_barrier()
     if hub_model_id and _is_main_process():
         hub_token = getattr(trainer.args, "hub_token", None)

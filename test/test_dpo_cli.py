@@ -479,7 +479,10 @@ class DPOCliTest(unittest.TestCase):
 
         self.assertEqual(trainer.saved_paths, ["tmp_dpo/final"])
         self.assertFalse(trainer.push_to_hub_called)
-        self.assertEqual(fsdp_plugin.set_state_dict_type_calls, [])
+        self.assertEqual(
+            fsdp_plugin.set_state_dict_type_calls,
+            ["FULL_STATE_DICT", "SHARDED_STATE_DICT"],
+        )
         self.assertEqual(fsdp_plugin.state_dict_type, "SHARDED_STATE_DICT")
         create_repo_mock.assert_called_once_with(
             "user/e-dpo-test",
@@ -521,9 +524,12 @@ class DPOCliTest(unittest.TestCase):
                 },
             )
 
-        self.assertEqual(trainer.saved_paths, [])
+        self.assertEqual(trainer.saved_paths, ["tmp_dpo"])
         self.assertFalse(trainer.push_to_hub_called)
-        self.assertEqual(fsdp_plugin.set_state_dict_type_calls, [])
+        self.assertEqual(
+            fsdp_plugin.set_state_dict_type_calls,
+            ["FULL_STATE_DICT", "SHARDED_STATE_DICT"],
+        )
         self.assertEqual(fsdp_plugin.state_dict_type, "SHARDED_STATE_DICT")
         create_repo_mock.assert_called_once_with(
             "user/e-dpo-test",
