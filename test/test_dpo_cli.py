@@ -1,17 +1,22 @@
-"""Unit tests for HH-based Beta, Margin, and Epsilon DPO CLI entry points."""
+"""Unit tests for DPO CLI entry points and preference dataset builders."""
 
 import io
 import sys
 import unittest
 from contextlib import redirect_stdout
+from typing import Callable, Optional
 from unittest.mock import patch
 
 from datasets import Dataset
 from trl import DPOConfig
 
 from src.cli import main_beta_dpo, main_e_dpo, main_margin_dpo
+from src.data.ultrafeedback_dataset import build_ultrafeedback_preference_dataset
 from src.trainers.beta_dpo_trainer import BetaDPOConfig
 from src.trainers.epsilon_dpo_trainer import EpsilonDPOConfig
+
+
+DUMMY_ASSISTANT_SUFFIX = "<|start_header_id|>assistant<|end_header_id|>\n\n"
 
 
 def _base_dpo_config() -> dict:
@@ -120,6 +125,23 @@ class _DummyTokenizer:
         self.pad_token_id = None
         self.eos_token = "</s>"
         self.pad_token = None
+        self.chat_template = None
+
+    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=False):
+        if tokenize:
+            raise ValueError("Dummy tokenizer only supports tokenize=False in tests.")
+
+        rendered = []
+        for message in messages:
+            role = str(message.get("role", ""))
+            content = str(message.get("content", ""))
+            rendered.append(
+                f"<|start_header_id|>{role}<|end_header_id|>\n\n{content}<|eot_id|>"
+            )
+        text = "".join(rendered)
+        if add_generation_prompt:
+            text += DUMMY_ASSISTANT_SUFFIX
+        return text
 
 
 class _DummyTrainer:
@@ -170,7 +192,14 @@ class DPOCliTest(unittest.TestCase):
     def setUp(self):
         _DummyTrainer.instances.clear()
 
-    def _run_main(self, main_fn, config: dict, trainer_patch_path: str, argv: list[str]):
+    def _run_main(
+        self,
+        main_fn,
+        config: dict,
+        trainer_patch_path: str,
+        argv: list[str],
+        load_dataset_side_effect: Optional[Callable] = None,
+    ):
         raw_dataset = _raw_hh_dataset()
         policy = _DummyModel()
         ref_model = _DummyModel()
@@ -181,9 +210,15 @@ class DPOCliTest(unittest.TestCase):
             self.assertEqual(split, config["dataset"]["subset"])
             return raw_dataset
 
+        effective_load_dataset = (
+            load_dataset_side_effect
+            if load_dataset_side_effect is not None
+            else _fake_load_dataset
+        )
+
         with (
             patch("src.cli.load_yaml", return_value=config),
-            patch("src.cli.load_dataset", side_effect=_fake_load_dataset),
+            patch("src.cli.load_dataset", side_effect=effective_load_dataset),
             patch(
                 "src.cli.AutoTokenizer.from_pretrained",
                 side_effect=lambda *args, **kwargs: _DummyTokenizer(),
@@ -364,6 +399,150 @@ class DPOCliTest(unittest.TestCase):
                 "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
                 ["train-e-dpo", "--config", "config_e_dpo.yaml"],
             )
+
+    def test_main_beta_dpo_ultrafeedback_uses_explicit_train_eval_splits(self):
+        config = _base_dpo_config()
+        config["dataset"] = {
+            "preference_source": "ultrafeedback_binarized",
+            "dataset_name": "HuggingFaceH4/ultrafeedback_binarized",
+            "generated_data": False,
+            "chat_template": True,
+            "chat_template_name": "llama3",
+            "train_split": "train_prefs",
+            "eval_split": "test_prefs",
+            "max_len": 64,
+        }
+        config["beta_dpo"] = {"beta": 0.1}
+
+        train_prefs = Dataset.from_list(
+            [
+                {
+                    "prompt": "Say hi",
+                    "chosen": [
+                        {"role": "user", "content": "Say hi"},
+                        {"role": "assistant", "content": "Hi there."},
+                    ],
+                    "rejected": [
+                        {"role": "user", "content": "Say hi"},
+                        {"role": "assistant", "content": "No."},
+                    ],
+                },
+                {
+                    "prompt": "Bad row",
+                    "chosen": [
+                        {"role": "user", "content": "A"},
+                        {"role": "assistant", "content": "B"},
+                    ],
+                    "rejected": [
+                        {"role": "user", "content": "Different"},
+                        {"role": "assistant", "content": "C"},
+                    ],
+                },
+            ]
+        )
+        test_prefs = Dataset.from_list(
+            [
+                {
+                    "prompt": "2+2",
+                    "chosen": [
+                        {"role": "user", "content": "2+2"},
+                        {"role": "assistant", "content": "4"},
+                    ],
+                    "rejected": [
+                        {"role": "user", "content": "2+2"},
+                        {"role": "assistant", "content": "5"},
+                    ],
+                }
+            ]
+        )
+        load_calls = []
+
+        def _fake_load_dataset(path, data_dir=None, split=None):
+            load_calls.append((path, data_dir, split))
+            if split == "train_prefs":
+                return train_prefs
+            if split == "test_prefs":
+                return test_prefs
+            raise AssertionError(f"Unexpected split request: {split}")
+
+        trainer, _ = self._run_main(
+            main_beta_dpo,
+            config,
+            "src.trainers.beta_dpo_trainer.BetaDPOTrainer",
+            ["train-beta-dpo", "--config", "config_beta_dpo.yaml"],
+            load_dataset_side_effect=_fake_load_dataset,
+        )
+
+        self.assertEqual(
+            load_calls,
+            [
+                (
+                    "HuggingFaceH4/ultrafeedback_binarized",
+                    None,
+                    "train_prefs",
+                ),
+                (
+                    "HuggingFaceH4/ultrafeedback_binarized",
+                    None,
+                    "test_prefs",
+                ),
+            ],
+        )
+        self.assertEqual(set(trainer.train_dataset.column_names), {"prompt", "chosen", "rejected"})
+        self.assertEqual(set(trainer.eval_dataset.column_names), {"prompt", "chosen", "rejected"})
+        self.assertEqual(len(trainer.train_dataset), 1)
+        self.assertEqual(len(trainer.eval_dataset), 1)
+        self.assertTrue(trainer.train_dataset[0]["prompt"].endswith(DUMMY_ASSISTANT_SUFFIX))
+
+    def test_main_e_dpo_ultrafeedback_generated_data_is_not_supported(self):
+        config = _base_dpo_config()
+        config["dataset"] = {
+            "preference_source": "ultrafeedback_binarized",
+            "dataset_name": "HuggingFaceH4/ultrafeedback_binarized",
+            "generated_data": True,
+            "chat_template": True,
+            "chat_template_name": "llama3",
+            "train_split": "train_prefs",
+            "eval_split": "test_prefs",
+            "max_len": 64,
+        }
+        config["e_dpo"] = {"beta": 0.15, "epsilon": 0.02}
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "dataset\\.generated_data=true is not supported",
+        ):
+            self._run_main(
+                main_e_dpo,
+                config,
+                "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
+                ["train-e-dpo", "--config", "config_e_dpo.yaml"],
+                load_dataset_side_effect=lambda *args, **kwargs: Dataset.from_list([]),
+            )
+
+    def test_main_margin_dpo_ultrafeedback_requires_explicit_splits(self):
+        config = _base_dpo_config()
+        config["dataset"] = {
+            "preference_source": "ultrafeedback_binarized",
+            "dataset_name": "HuggingFaceH4/ultrafeedback_binarized",
+            "generated_data": False,
+            "chat_template": True,
+            "chat_template_name": "llama3",
+            "max_len": 64,
+        }
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "dataset\\.train_split and dataset\\.eval_split are required",
+        ):
+            self._run_main(
+                main_margin_dpo,
+                config,
+                "src.trainers.margin_dpo_trainer.MarginDPOTrainer",
+                ["train-margin-dpo", "--config", "config_margin_dpo.yaml"],
+                load_dataset_side_effect=lambda *args, **kwargs: Dataset.from_list([]),
+            )
+
 
     def test_main_e_dpo_accepts_torchrun_local_rank_argument(self):
         config = _base_dpo_config()
@@ -549,3 +728,96 @@ class DPOCliTest(unittest.TestCase):
                 "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
                 ["train-e-dpo", "--config", "config_e_dpo.yaml"],
             )
+
+
+class UltraFeedbackDatasetBuilderTest(unittest.TestCase):
+    def test_build_ultrafeedback_preference_dataset_renders_triplets(self):
+        ds = Dataset.from_list(
+            [
+                {
+                    "prompt": "Explain sky color.",
+                    "chosen": [
+                        {"role": "system", "content": "You are helpful."},
+                        {"role": "user", "content": "Explain sky color."},
+                        {"role": "assistant", "content": "Rayleigh scattering."},
+                    ],
+                    "rejected": [
+                        {"role": "system", "content": "You are helpful."},
+                        {"role": "user", "content": "Explain sky color."},
+                        {"role": "assistant", "content": "I do not know."},
+                    ],
+                }
+            ]
+        )
+
+        output = build_ultrafeedback_preference_dataset(
+            ds,
+            _DummyTokenizer(),
+            model_name="dummy-llama3",
+            chat_template_name="llama3",
+        )
+
+        self.assertEqual(set(output.column_names), {"prompt", "chosen", "rejected"})
+        self.assertEqual(len(output), 1)
+        self.assertTrue(output[0]["prompt"].endswith(DUMMY_ASSISTANT_SUFFIX))
+        self.assertIn("Rayleigh scattering.", output[0]["chosen"])
+        self.assertIn("I do not know.", output[0]["rejected"])
+
+    def test_build_ultrafeedback_preference_dataset_filters_malformed_rows(self):
+        ds = Dataset.from_list(
+            [
+                {
+                    "prompt": "Keep me",
+                    "chosen": [
+                        {"role": "user", "content": "Keep me"},
+                        {"role": "assistant", "content": "Chosen"},
+                    ],
+                    "rejected": [
+                        {"role": "user", "content": "Keep me"},
+                        {"role": "assistant", "content": "Rejected"},
+                    ],
+                },
+                {
+                    "prompt": "",
+                    "chosen": [
+                        {"role": "user", "content": "x"},
+                        {"role": "assistant", "content": "y"},
+                    ],
+                    "rejected": [
+                        {"role": "user", "content": "x"},
+                        {"role": "assistant", "content": "z"},
+                    ],
+                },
+                {
+                    "prompt": "Bad suffix",
+                    "chosen": [
+                        {"role": "user", "content": "Bad suffix"},
+                        {"role": "assistant", "content": "a"},
+                    ],
+                    "rejected": [
+                        {"role": "assistant", "content": "b"},
+                    ],
+                },
+                {
+                    "prompt": "No assistant end",
+                    "chosen": [
+                        {"role": "user", "content": "No assistant end"},
+                    ],
+                    "rejected": [
+                        {"role": "user", "content": "No assistant end"},
+                        {"role": "assistant", "content": "ok"},
+                    ],
+                },
+            ]
+        )
+
+        output = build_ultrafeedback_preference_dataset(
+            ds,
+            _DummyTokenizer(),
+            model_name="dummy-llama3",
+            chat_template_name="llama3",
+        )
+
+        self.assertEqual(len(output), 1)
+        self.assertEqual(output[0]["chosen"].strip(), "Chosen<|eot_id|>")
+        self.assertEqual(output[0]["rejected"].strip(), "Rejected<|eot_id|>")

@@ -14,6 +14,7 @@ from .data.hh_dataset import (
     build_HH_dataset,
     load_generated_dataset_from_config,
 )
+from .data.ultrafeedback_dataset import build_ultrafeedback_preference_dataset
 from .trainers.sft_trainer import run_sft_training
 
 
@@ -93,6 +94,61 @@ def _build_hh_dpo_datasets(
         seed=int(dataset_cfg["seed"]),
     )
     return split["train"], split["test"]
+
+
+def _build_ultrafeedback_dpo_datasets(
+    config: Dict[str, Any], tokenizer: Any, policy_name: str
+) -> Tuple[Dataset, Dataset]:
+    dataset_cfg = config["dataset"]
+    if bool(dataset_cfg.get("generated_data", False)):
+        raise ValueError(
+            "dataset.generated_data=true is not supported when "
+            "dataset.preference_source=ultrafeedback_binarized."
+        )
+
+    train_split = dataset_cfg.get("train_split")
+    eval_split = dataset_cfg.get("eval_split")
+    if not train_split or not eval_split:
+        raise ValueError(
+            "dataset.train_split and dataset.eval_split are required when "
+            "dataset.preference_source=ultrafeedback_binarized."
+        )
+
+    dataset_name = dataset_cfg["dataset_name"]
+    data_dir = dataset_cfg.get("data_dir")
+    if data_dir is None and dataset_cfg.get("config_name") is not None:
+        data_dir = dataset_cfg["config_name"]
+
+    train_raw = load_dataset(dataset_name, data_dir=data_dir, split=str(train_split))
+    eval_raw = load_dataset(dataset_name, data_dir=data_dir, split=str(eval_split))
+
+    train_ds = build_ultrafeedback_preference_dataset(
+        train_raw,
+        tokenizer,
+        model_name=policy_name,
+        chat_template_name=dataset_cfg.get("chat_template_name"),
+    )
+    eval_ds = build_ultrafeedback_preference_dataset(
+        eval_raw,
+        tokenizer,
+        model_name=policy_name,
+        chat_template_name=dataset_cfg.get("chat_template_name"),
+    )
+    return train_ds, eval_ds
+
+
+def _build_dpo_datasets(
+    config: Dict[str, Any], tokenizer: Any, policy_name: str
+) -> Tuple[Dataset, Dataset]:
+    dataset_cfg = config.get("dataset", {})
+    preference_source = str(dataset_cfg.get("preference_source", "hh")).strip().lower()
+    if preference_source == "hh":
+        return _build_hh_dpo_datasets(config, tokenizer, policy_name)
+    if preference_source == "ultrafeedback_binarized":
+        return _build_ultrafeedback_dpo_datasets(config, tokenizer, policy_name)
+    raise ValueError(
+        "dataset.preference_source must be 'hh' or 'ultrafeedback_binarized'."
+    )
 
 
 def _parse_dpo_fsdp_options(dpo_cfg: Dict[str, Any]) -> Dict[str, Any]:
@@ -352,7 +408,7 @@ def run_beta_dpo_training(config: Dict[str, Any]) -> None:
     from .trainers.beta_dpo_trainer import BetaDPOConfig, BetaDPOTrainer
 
     policy, ref_model, tokenizer, policy_name = _load_policy_ref_and_tokenizer(config)
-    train_ds, eval_ds = _build_hh_dpo_datasets(config, tokenizer, policy_name)
+    train_ds, eval_ds = _build_dpo_datasets(config, tokenizer, policy_name)
 
     beta_cfg = config.get("beta_dpo", {})
     training_args = BetaDPOConfig(
@@ -383,7 +439,7 @@ def run_margin_dpo_training(config: Dict[str, Any]) -> None:
     from .trainers.margin_dpo_trainer import MarginDPOTrainer
 
     policy, ref_model, tokenizer, policy_name = _load_policy_ref_and_tokenizer(config)
-    train_ds, eval_ds = _build_hh_dpo_datasets(config, tokenizer, policy_name)
+    train_ds, eval_ds = _build_dpo_datasets(config, tokenizer, policy_name)
 
     training_args = DPOConfig(**_build_common_dpo_config_kwargs(config))
     margin_cfg = config.get("margin_log", {})
@@ -407,7 +463,7 @@ def run_e_dpo_training(config: Dict[str, Any]) -> None:
     from .trainers.epsilon_dpo_trainer import EpsilonDPOConfig, EpsilonDPOTrainer
 
     policy, ref_model, tokenizer, policy_name = _load_policy_ref_and_tokenizer(config)
-    train_ds, eval_ds = _build_hh_dpo_datasets(config, tokenizer, policy_name)
+    train_ds, eval_ds = _build_dpo_datasets(config, tokenizer, policy_name)
 
     e_dpo_cfg = config.get("e_dpo", {})
     training_args = EpsilonDPOConfig(

@@ -186,18 +186,28 @@ uv run torchrun --standalone --nproc-per-node=4 scripts/run_e_dpo.py --config co
 
 Using a checked-in script path avoids shell-dependent `command -v` expansion. If that expansion returns an empty string, `torchrun` can fail before your code starts with `IndexError: string index out of range`.
 
-All three commands reuse the HH preprocessing pipeline:
+All three commands share one preference-data loader selected by
+`dataset.preference_source`:
 
-- load `Anthropic/hh-rlhf`
-- convert rows into `{"prompt", "chosen", "rejected"}`
-- optionally apply the configured chat template
-- split into train and eval using `dataset.val_ratio` and `dataset.seed`
+- `hh` (default):
+  - load `Anthropic/hh-rlhf`
+  - convert rows into `{"prompt", "chosen", "rejected"}`
+  - optionally apply the configured chat template
+  - split into train and eval with `dataset.val_ratio` and `dataset.seed`
+- `ultrafeedback_binarized`:
+  - load `HuggingFaceH4/ultrafeedback_binarized` directly from
+    `dataset.train_split` and `dataset.eval_split` (for SimPO base parity, use
+    `train_prefs` and `test_prefs`)
+  - normalize each row into `{"prompt", "chosen", "rejected"}` through the
+    same chat-template rendering flow used by DPO trainers
+  - `dataset.generated_data: true` is not supported for this source
 
 The dedicated example configs are:
 
 - `config_beta_dpo.yaml`
 - `config_margin_dpo.yaml`
 - `config_e_dpo.yaml`
+- `config_e_dpo_ultrafeedback.yaml` (UltraFeedback Binarized, base-style splits)
 
 `config_beta_dpo.yaml` adds a `beta_dpo` block with:
 
@@ -217,7 +227,7 @@ The dedicated example configs are:
 
 `dpo_training.fsdp` follows the same schema used by `sft_training.fsdp`, and DPO uses `dpo_training.gradient_checkpointing` for the `DPOConfig` checkpointing toggle.
 
-`dataset.max_len` is used as `DPOConfig.max_length` for HH DPO runs.
+`dataset.max_len` is used as `DPOConfig.max_length` for DPO runs.
 
 Current v1 DPO FSDP keeps a live frozen `ref_model` path (no precomputed reference log-probs), so multi-GPU memory usage can still be high.
 
