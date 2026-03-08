@@ -7,6 +7,7 @@ from contextlib import redirect_stdout
 from typing import Callable, Optional
 from unittest.mock import patch
 
+import trl
 from datasets import Dataset
 from trl import DPOConfig
 
@@ -122,15 +123,24 @@ class _DummyModel:
 
 class _DummyTokenizer:
     def __init__(self):
-        self.pad_token_id = None
+        self.pad_token_id = 0
+        self.eos_token_id = 1
         self.eos_token = "</s>"
         self.pad_token = None
         self.chat_template = None
 
-    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=False):
-        if tokenize:
-            raise ValueError("Dummy tokenizer only supports tokenize=False in tests.")
+    @staticmethod
+    def _encode_text(text):
+        return [ord(ch) + 2 for ch in text]
 
+    def apply_chat_template(
+        self,
+        messages,
+        tokenize=False,
+        add_generation_prompt=False,
+        return_dict=False,
+        **kwargs,
+    ):
         rendered = []
         for message in messages:
             role = str(message.get("role", ""))
@@ -141,7 +151,23 @@ class _DummyTokenizer:
         text = "".join(rendered)
         if add_generation_prompt:
             text += DUMMY_ASSISTANT_SUFFIX
-        return text
+        if not tokenize:
+            return text
+
+        input_ids = self._encode_text(text)
+        if return_dict:
+            return {
+                "input_ids": input_ids,
+                "attention_mask": [1] * len(input_ids),
+            }
+        return input_ids
+
+    def __call__(self, text, **kwargs):
+        input_ids = self._encode_text(str(text))
+        return {
+            "input_ids": input_ids,
+            "attention_mask": [1] * len(input_ids),
+        }
 
 
 class _DummyTrainer:
@@ -157,6 +183,7 @@ class _DummyTrainer:
         self.margin_log_path = kwargs.get("margin_log_path")
         self.train_called = False
         self.saved_path = None
+        self.saved_paths = []
         self.push_to_hub_called = False
         _DummyTrainer.instances.append(self)
 
@@ -165,6 +192,7 @@ class _DummyTrainer:
 
     def save_model(self, path):
         self.saved_path = path
+        self.saved_paths.append(path)
 
     def push_to_hub(self):
         self.push_to_hub_called = True
@@ -381,7 +409,8 @@ class DPOCliTest(unittest.TestCase):
 
         self.assertEqual(trainer.args.hub_model_id, "user/e-dpo-test")
         self.assertTrue(trainer.push_to_hub_called)
-        self.assertIsNone(trainer.saved_path)
+        self.assertEqual(trainer.saved_paths, ["tmp_dpo/final", "tmp_dpo"])
+        self.assertEqual(trainer.saved_path, "tmp_dpo")
         self.assertIsNone(trainer.model.pushed_to_hub)
 
     def test_main_e_dpo_requires_save_dir_in_config(self):
@@ -492,7 +521,18 @@ class DPOCliTest(unittest.TestCase):
         self.assertEqual(set(trainer.eval_dataset.column_names), {"prompt", "chosen", "rejected"})
         self.assertEqual(len(trainer.train_dataset), 1)
         self.assertEqual(len(trainer.eval_dataset), 1)
-        self.assertTrue(trainer.train_dataset[0]["prompt"].endswith(DUMMY_ASSISTANT_SUFFIX))
+        self.assertEqual(
+            trainer.train_dataset[0]["prompt"],
+            [{"role": "user", "content": "Say hi"}],
+        )
+        self.assertEqual(
+            trainer.train_dataset[0]["chosen"],
+            [{"role": "assistant", "content": "Hi there."}],
+        )
+        self.assertEqual(
+            trainer.train_dataset[0]["rejected"],
+            [{"role": "assistant", "content": "No."}],
+        )
 
     def test_main_e_dpo_ultrafeedback_generated_data_is_not_supported(self):
         config = _base_dpo_config()
@@ -731,7 +771,7 @@ class DPOCliTest(unittest.TestCase):
 
 
 class UltraFeedbackDatasetBuilderTest(unittest.TestCase):
-    def test_build_ultrafeedback_preference_dataset_renders_triplets(self):
+    def test_build_ultrafeedback_preference_dataset_builds_conversational_triplets(self):
         ds = Dataset.from_list(
             [
                 {
@@ -759,9 +799,124 @@ class UltraFeedbackDatasetBuilderTest(unittest.TestCase):
 
         self.assertEqual(set(output.column_names), {"prompt", "chosen", "rejected"})
         self.assertEqual(len(output), 1)
-        self.assertTrue(output[0]["prompt"].endswith(DUMMY_ASSISTANT_SUFFIX))
-        self.assertIn("Rayleigh scattering.", output[0]["chosen"])
-        self.assertIn("I do not know.", output[0]["rejected"])
+        self.assertEqual(
+            output[0]["prompt"],
+            [
+                {"role": "system", "content": "You are helpful."},
+                {"role": "user", "content": "Explain sky color."},
+            ],
+        )
+        self.assertEqual(
+            output[0]["chosen"],
+            [{"role": "assistant", "content": "Rayleigh scattering."}],
+        )
+        self.assertEqual(
+            output[0]["rejected"],
+            [{"role": "assistant", "content": "I do not know."}],
+        )
+
+    def test_build_ultrafeedback_preference_dataset_keeps_trl_conversational_schema(self):
+        ds = Dataset.from_list(
+            [
+                {
+                    "prompt": "Say hi",
+                    "chosen": [
+                        {"role": "user", "content": "Say hi"},
+                        {"role": "assistant", "content": "Hi there."},
+                    ],
+                    "rejected": [
+                        {"role": "user", "content": "Say hi"},
+                        {"role": "assistant", "content": "No."},
+                    ],
+                }
+            ]
+        )
+
+        output = build_ultrafeedback_preference_dataset(
+            ds,
+            _DummyTokenizer(),
+            model_name="dummy-llama3",
+            chat_template_name="llama3",
+        )
+
+        row = output[0]
+        self.assertIsInstance(row["prompt"], list)
+        self.assertIsInstance(row["chosen"], list)
+        self.assertIsInstance(row["rejected"], list)
+        self.assertEqual(row["prompt"][-1]["role"], "user")
+        self.assertEqual(row["chosen"][0]["role"], "assistant")
+        self.assertEqual(row["rejected"][0]["role"], "assistant")
+
+    def test_build_ultrafeedback_preference_dataset_skips_local_template_setup_when_disabled(self):
+        ds = Dataset.from_list(
+            [
+                {
+                    "prompt": "Say hi",
+                    "chosen": [
+                        {"role": "user", "content": "Say hi"},
+                        {"role": "assistant", "content": "Hi there."},
+                    ],
+                    "rejected": [
+                        {"role": "user", "content": "Say hi"},
+                        {"role": "assistant", "content": "No."},
+                    ],
+                }
+            ]
+        )
+        tokenizer = _DummyTokenizer()
+
+        output = build_ultrafeedback_preference_dataset(
+            ds,
+            tokenizer,
+            model_name="dummy-llama3",
+            chat_template_name="llama3",
+            add_chat_template=False,
+        )
+
+        self.assertEqual(len(output), 1)
+        self.assertIsNone(tokenizer.chat_template)
+
+    def test_build_ultrafeedback_preference_dataset_prepares_with_real_trl_path(self):
+        ds = Dataset.from_list(
+            [
+                {
+                    "prompt": "Say hi",
+                    "chosen": [
+                        {"role": "user", "content": "Say hi"},
+                        {"role": "assistant", "content": "Hi there."},
+                    ],
+                    "rejected": [
+                        {"role": "user", "content": "Say hi"},
+                        {"role": "assistant", "content": "No."},
+                    ],
+                }
+            ]
+        )
+        tokenizer = _DummyTokenizer()
+        preference_ds = build_ultrafeedback_preference_dataset(
+            ds,
+            tokenizer,
+            model_name="dummy-llama3",
+            chat_template_name="llama3",
+        )
+        trainer = object.__new__(trl.DPOTrainer)
+        trainer._is_vlm = False
+
+        prepared = trl.DPOTrainer._prepare_dataset(
+            trainer,
+            preference_ds,
+            tokenizer,
+            DPOConfig(output_dir="tmp_dpo"),
+            "train",
+        )
+
+        row = prepared[0]
+        self.assertIn("prompt_ids", row)
+        self.assertIn("chosen_ids", row)
+        self.assertIn("rejected_ids", row)
+        self.assertGreater(len(row["prompt_ids"]), 0)
+        self.assertGreater(len(row["chosen_ids"]), 0)
+        self.assertGreater(len(row["rejected_ids"]), 0)
 
     def test_build_ultrafeedback_preference_dataset_filters_malformed_rows(self):
         ds = Dataset.from_list(
@@ -819,5 +974,15 @@ class UltraFeedbackDatasetBuilderTest(unittest.TestCase):
         )
 
         self.assertEqual(len(output), 1)
-        self.assertEqual(output[0]["chosen"].strip(), "Chosen<|eot_id|>")
-        self.assertEqual(output[0]["rejected"].strip(), "Rejected<|eot_id|>")
+        self.assertEqual(
+            output[0]["prompt"],
+            [{"role": "user", "content": "Keep me"}],
+        )
+        self.assertEqual(
+            output[0]["chosen"],
+            [{"role": "assistant", "content": "Chosen"}],
+        )
+        self.assertEqual(
+            output[0]["rejected"],
+            [{"role": "assistant", "content": "Rejected"}],
+        )

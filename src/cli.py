@@ -127,12 +127,14 @@ def _build_ultrafeedback_dpo_datasets(
         tokenizer,
         model_name=policy_name,
         chat_template_name=dataset_cfg.get("chat_template_name"),
+        add_chat_template=bool(dataset_cfg.get("chat_template", False)),
     )
     eval_ds = build_ultrafeedback_preference_dataset(
         eval_raw,
         tokenizer,
         model_name=policy_name,
         chat_template_name=dataset_cfg.get("chat_template_name"),
+        add_chat_template=bool(dataset_cfg.get("chat_template", False)),
     )
     return train_ds, eval_ds
 
@@ -353,16 +355,18 @@ def _maybe_init_wandb(config: Dict[str, Any]) -> None:
 def _finalize_dpo_training(trainer: Any, dpo_train_args: Dict[str, Any]) -> None:
     trainer.train()
 
+    save_dir = str(dpo_train_args["save_dir"])
+    final_output_dir = os.path.join(save_dir, "final")
+    trainer.save_model(final_output_dir)
+
     hub_model_id = dpo_train_args.get("hub_model_id")
     if hub_model_id:
+        trainer.save_model(save_dir)
         if _is_main_process():
             print(f"\nPushing model to HuggingFace Hub: {hub_model_id}")
         trainer.push_to_hub()
         if _is_main_process():
             print(f"Model uploaded successfully to: https://huggingface.co/{hub_model_id}")
-        return
-
-    trainer.save_model(os.path.join(str(dpo_train_args["save_dir"]), "final"))
 
 
 def main_sft():
