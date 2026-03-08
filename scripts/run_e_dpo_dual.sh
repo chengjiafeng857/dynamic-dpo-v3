@@ -44,6 +44,7 @@ EOF
 
 PREPARE_ONLY=0
 HF_NAMESPACE=""
+RUN_STARTED=0
 
 while (($# > 0)); do
   case "$1" in
@@ -216,6 +217,23 @@ stop_runpod() {
   /bin/zsh -lc "$RUNPOD_STOP_COMMAND"
 }
 
+handle_exit() {
+  local exit_code="$1"
+
+  if [[ "$PREPARE_ONLY" -eq 1 || "$RUN_STARTED" -eq 0 ]]; then
+    return "$exit_code"
+  fi
+
+  if [[ "$exit_code" -eq 0 ]]; then
+    echo "Dual e-DPO run complete."
+  else
+    echo "Dual e-DPO run failed with exit code ${exit_code}."
+  fi
+
+  stop_runpod || true
+  return "$exit_code"
+}
+
 run_one() {
   local label="$1"
   local config_path="$2"
@@ -261,12 +279,12 @@ run_one() {
   cleanup_checkpoints "$label" "$checkpoint_dir"
 }
 
+trap 'handle_exit "$?"' EXIT
+
+RUN_STARTED=1
 run_one "helpful" "$HELPFUL_CONFIG" "hh-helpful-base-e-dpo"
 run_one "harmless" "$HARMLESS_CONFIG" "hh-harmless-base-e-dpo"
 
 if [[ "$PREPARE_ONLY" -eq 1 ]]; then
   echo "Prepare-only run complete."
-else
-  echo "Dual e-DPO run complete."
-  stop_runpod
 fi
