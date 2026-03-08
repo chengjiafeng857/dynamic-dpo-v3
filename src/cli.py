@@ -375,7 +375,7 @@ def run_beta_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
         args=training_args,
         train_dataset=train_ds,
         eval_dataset=eval_ds,
-        processing_class=None,
+        processing_class=tokenizer,
     )
     _finalize_dpo_training(trainer, output_dir, config["dpo_training"])
 
@@ -399,7 +399,7 @@ def run_margin_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
         train_dataset=train_ds,
         eval_dataset=eval_ds,
         margin_log_path=str(margin_cfg.get("log_dir", "logs/margins")),
-        processing_class=None,
+        processing_class=tokenizer,
     )
     _finalize_dpo_training(trainer, output_dir, config["dpo_training"])
 
@@ -429,7 +429,7 @@ def run_e_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
         args=training_args,
         train_dataset=train_ds,
         eval_dataset=eval_ds,
-        processing_class=None,
+        processing_class=tokenizer,
     )
     _finalize_dpo_training(trainer, output_dir, config["dpo_training"])
 
