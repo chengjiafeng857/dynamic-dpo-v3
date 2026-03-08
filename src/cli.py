@@ -2,7 +2,6 @@
 
 import argparse
 import os
-from contextlib import contextmanager, nullcontext
 from typing import Any, Dict, Tuple
 
 from datasets import Dataset, load_dataset
@@ -48,6 +47,16 @@ def _maybe_distributed_barrier() -> None:
 
     if dist.is_available() and dist.is_initialized():
         dist.barrier()
+
+
+def _resolve_dpo_hub_upload_source(dpo_train_args: Dict[str, Any]) -> str:
+    upload_source = str(dpo_train_args.get("hub_upload_source", "final")).lower()
+    valid_sources = {"final", "save_dir"}
+    if upload_source not in valid_sources:
+        raise ValueError(
+            "dpo_training.hub_upload_source must be one of 'final' or 'save_dir'."
+        )
+    return upload_source
 
 
 def _load_policy_ref_and_tokenizer(
@@ -361,57 +370,16 @@ def _maybe_init_wandb(config: Dict[str, Any]) -> None:
         print(f"[DPO] wandb run_url={run_url}")
 
 
-@contextmanager
-def _full_fsdp_state_dict_context(trainer: Any):
-    if not getattr(trainer, "is_fsdp_enabled", False):
-        yield
-        return
-
-    accelerator = getattr(trainer, "accelerator", None)
-    accelerator_state = getattr(accelerator, "state", None)
-    fsdp_plugin = getattr(accelerator_state, "fsdp_plugin", None)
-    if fsdp_plugin is None or not hasattr(fsdp_plugin, "set_state_dict_type"):
-        yield
-        return
-
-    original_state_dict_type = getattr(fsdp_plugin, "state_dict_type", None)
-    state_dict_type_name = str(
-        getattr(original_state_dict_type, "name", original_state_dict_type)
-    ).upper()
-    if state_dict_type_name == "FULL_STATE_DICT":
-        yield
-        return
-
-    original_env_state_dict_type = os.environ.get("FSDP_STATE_DICT_TYPE")
-    if _is_main_process():
-        print(
-            "[DPO] Switching FSDP state_dict_type to FULL_STATE_DICT for final save/push."
-        )
-
-    fsdp_plugin.set_state_dict_type("FULL_STATE_DICT")
-    os.environ["FSDP_STATE_DICT_TYPE"] = "FULL_STATE_DICT"
-    try:
-        yield
-    finally:
-        fsdp_plugin.set_state_dict_type(original_state_dict_type)
-        if original_env_state_dict_type is None:
-            os.environ.pop("FSDP_STATE_DICT_TYPE", None)
-        else:
-            os.environ["FSDP_STATE_DICT_TYPE"] = original_env_state_dict_type
-
-
 def _finalize_dpo_training(trainer: Any, dpo_train_args: Dict[str, Any]) -> None:
     trainer.train()
 
     save_dir = str(dpo_train_args["save_dir"])
     final_output_dir = os.path.join(save_dir, "final")
     hub_model_id = dpo_train_args.get("hub_model_id")
-    save_context = (
-        _full_fsdp_state_dict_context(trainer)
-        if getattr(trainer, "is_fsdp_enabled", False)
-        else nullcontext()
-    )
-    with save_context:
+    hub_upload_source = _resolve_dpo_hub_upload_source(dpo_train_args)
+    upload_dir = final_output_dir if hub_upload_source == "final" else save_dir
+
+    if hub_upload_source == "final":
         trainer.save_model(final_output_dir)
     _maybe_distributed_barrier()
     if hub_model_id and _is_main_process():
@@ -427,7 +395,7 @@ def _finalize_dpo_training(trainer: Any, dpo_train_args: Dict[str, Any]) -> None
         print(f"\nPushing model to HuggingFace Hub: {hub_model_id}")
         upload_folder(
             repo_id=hub_model_id,
-            folder_path=final_output_dir,
+            folder_path=upload_dir,
             commit_message="End of training",
             token=hub_token,
             revision=hub_revision,

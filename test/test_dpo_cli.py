@@ -452,7 +452,7 @@ class DPOCliTest(unittest.TestCase):
             revision=None,
         )
 
-    def test_finalize_dpo_training_switches_fsdp_to_full_state_dict_for_final_save(self):
+    def test_finalize_dpo_training_uses_configured_state_dict_type_for_final_save(self):
         trainer = _DummyTrainer(
             model=_DummyModel(),
             ref_model=_DummyModel(),
@@ -479,10 +479,7 @@ class DPOCliTest(unittest.TestCase):
 
         self.assertEqual(trainer.saved_paths, ["tmp_dpo/final"])
         self.assertFalse(trainer.push_to_hub_called)
-        self.assertEqual(
-            fsdp_plugin.set_state_dict_type_calls,
-            ["FULL_STATE_DICT", "SHARDED_STATE_DICT"],
-        )
+        self.assertEqual(fsdp_plugin.set_state_dict_type_calls, [])
         self.assertEqual(fsdp_plugin.state_dict_type, "SHARDED_STATE_DICT")
         create_repo_mock.assert_called_once_with(
             "user/e-dpo-test",
@@ -493,6 +490,50 @@ class DPOCliTest(unittest.TestCase):
         upload_folder_mock.assert_called_once_with(
             repo_id="user/e-dpo-test",
             folder_path="tmp_dpo/final",
+            commit_message="End of training",
+            token=None,
+            revision=None,
+        )
+
+    def test_finalize_dpo_training_uploads_save_dir_for_sharded_hub_source(self):
+        trainer = _DummyTrainer(
+            model=_DummyModel(),
+            ref_model=_DummyModel(),
+            args=DPOConfig(output_dir="tmp_dpo", hub_model_id="user/e-dpo-test"),
+            train_dataset=Dataset.from_list([]),
+            eval_dataset=Dataset.from_list([]),
+        )
+        fsdp_plugin = _DummyFSDPPlugin("SHARDED_STATE_DICT")
+        trainer.is_fsdp_enabled = True
+        trainer.accelerator = _DummyAccelerator(fsdp_plugin)
+
+        with (
+            patch("src.cli._is_main_process", return_value=True),
+            patch("src.cli.create_repo") as create_repo_mock,
+            patch("src.cli.upload_folder") as upload_folder_mock,
+        ):
+            _finalize_dpo_training(
+                trainer,
+                {
+                    "save_dir": "tmp_dpo",
+                    "hub_model_id": "user/e-dpo-test",
+                    "hub_upload_source": "save_dir",
+                },
+            )
+
+        self.assertEqual(trainer.saved_paths, [])
+        self.assertFalse(trainer.push_to_hub_called)
+        self.assertEqual(fsdp_plugin.set_state_dict_type_calls, [])
+        self.assertEqual(fsdp_plugin.state_dict_type, "SHARDED_STATE_DICT")
+        create_repo_mock.assert_called_once_with(
+            "user/e-dpo-test",
+            token=None,
+            private=None,
+            exist_ok=True,
+        )
+        upload_folder_mock.assert_called_once_with(
+            repo_id="user/e-dpo-test",
+            folder_path="tmp_dpo",
             commit_message="End of training",
             token=None,
             revision=None,
