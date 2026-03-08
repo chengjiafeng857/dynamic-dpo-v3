@@ -30,6 +30,7 @@ dpo_training:
   report: null
   run_name: hh-e-dpo
   hub_model_id: jackf857/llama-base-sft-e-dpo-hh-harmless-base
+  save_dir: e_dpo_checkpoints
   save_strategy: steps
   load_best_model_at_end: false
   metric_for_best_model: eval_loss

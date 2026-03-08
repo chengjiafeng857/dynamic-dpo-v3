@@ -5,7 +5,6 @@ HELPFUL_CONFIG="${HELPFUL_CONFIG:-config_e_dpo_helpful.yaml}"
 HARMLESS_CONFIG="${HARMLESS_CONFIG:-config_e_dpo_harmless.yaml}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-4}"
 NNODES="${NNODES:-1}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-e_dpo_hh_outputs}"
 LOG_ROOT="${LOG_ROOT:-logs}"
 REPO_PREFIX="${REPO_PREFIX:-}"
 STOP_RUNPOD_AFTER_RUN="${STOP_RUNPOD_AFTER_RUN:-auto}"
@@ -31,7 +30,6 @@ Environment overrides:
   HARMLESS_CONFIG  (default: config_e_dpo_harmless.yaml)
   NPROC_PER_NODE   (default: 4)
   NNODES           (default: 1)
-  OUTPUT_ROOT      (default: e_dpo_hh_outputs)
   LOG_ROOT         (default: logs)
   REPO_PREFIX      (optional prefix prepended to run name)
   STOP_RUNPOD_AFTER_RUN
@@ -94,7 +92,7 @@ done
 timestamp="$(date +%Y%m%d_%H%M%S)"
 torchrun_root="${LOG_ROOT}/torchrun_${timestamp}"
 
-mkdir -p "$OUTPUT_ROOT" "$LOG_ROOT" "$torchrun_root"
+mkdir -p "$LOG_ROOT" "$torchrun_root"
 
 compute_run_name() {
   local base_name="$1"
@@ -243,9 +241,8 @@ run_one() {
   local checkpoint_dir
   checkpoint_dir="$(read_save_dir "$config_path")"
 
-  local output_dir="${OUTPUT_ROOT}/${run_name}"
-  if [[ -e "$output_dir" ]]; then
-    echo "Refusing to run: output directory already exists: $output_dir" >&2
+  if [[ -e "$checkpoint_dir" ]]; then
+    echo "Refusing to run: checkpoint directory already exists: $checkpoint_dir" >&2
     exit 1
   fi
 
@@ -258,7 +255,6 @@ run_one() {
   echo "[${label}] config=${config_path}"
   echo "[${label}] run_name=${run_name}"
   echo "[${label}] hub_model_id=${hub_model_id}"
-  echo "[${label}] output_dir=${output_dir}"
   echo "[${label}] checkpoint_dir=${checkpoint_dir}"
   echo "[${label}] torchrun_log_dir=${torchrun_log_dir}"
   echo "[${label}] run_log=${run_log}"
@@ -273,8 +269,7 @@ run_one() {
     --nnodes "$NNODES" \
     --log_dir "$torchrun_log_dir" \
     scripts/run_e_dpo.py \
-    --config "$config_path" \
-    --output_dir "$output_dir" 2>&1 | tee "$run_log"
+    --config "$config_path" 2>&1 | tee "$run_log"
 
   cleanup_checkpoints "$label" "$checkpoint_dir"
 }

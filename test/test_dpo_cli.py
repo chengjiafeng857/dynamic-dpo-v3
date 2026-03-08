@@ -223,11 +223,11 @@ class DPOCliTest(unittest.TestCase):
             main_beta_dpo,
             config,
             "src.trainers.beta_dpo_trainer.BetaDPOTrainer",
-            ["train-beta-dpo", "--config", "config_beta_dpo.yaml", "--output_dir", "beta_out"],
+            ["train-beta-dpo", "--config", "config_beta_dpo.yaml"],
         )
 
         self.assertTrue(trainer.train_called)
-        self.assertEqual(trainer.saved_path, "beta_out/final")
+        self.assertEqual(trainer.saved_path, "tmp_dpo/final")
         self.assertIsInstance(trainer.args, BetaDPOConfig)
         self.assertEqual(trainer.args.beta, 0.2)
         self.assertEqual(trainer.args.rho, 0.7)
@@ -252,15 +252,13 @@ class DPOCliTest(unittest.TestCase):
                 "train-beta-dpo",
                 "--config",
                 "config_beta_dpo.yaml",
-                "--output_dir",
-                "beta_out",
                 "--local-rank",
                 "3",
             ],
         )
 
         self.assertTrue(trainer.train_called)
-        self.assertEqual(trainer.saved_path, "beta_out/final")
+        self.assertEqual(trainer.saved_path, "tmp_dpo/final")
 
     def test_main_margin_dpo_passes_margin_log_path_and_standard_dpo_config(self):
         config = _base_dpo_config()
@@ -274,13 +272,11 @@ class DPOCliTest(unittest.TestCase):
                 "train-margin-dpo",
                 "--config",
                 "config_margin_dpo.yaml",
-                "--output_dir",
-                "margin_out",
             ],
         )
 
         self.assertTrue(trainer.train_called)
-        self.assertEqual(trainer.saved_path, "margin_out/final")
+        self.assertEqual(trainer.saved_path, "tmp_dpo/final")
         self.assertIsInstance(trainer.args, DPOConfig)
         self.assertEqual(trainer.margin_log_path, "logs/custom_margins")
         self.assertEqual(trainer.args.max_length, 64)
@@ -298,15 +294,13 @@ class DPOCliTest(unittest.TestCase):
                 "train-margin-dpo",
                 "--config",
                 "config_margin_dpo.yaml",
-                "--output_dir",
-                "margin_out",
                 "--local_rank",
                 "2",
             ],
         )
 
         self.assertTrue(trainer.train_called)
-        self.assertEqual(trainer.saved_path, "margin_out/final")
+        self.assertEqual(trainer.saved_path, "tmp_dpo/final")
 
     def test_main_e_dpo_builds_epsilon_config_and_hh_triplets(self):
         config = _base_dpo_config()
@@ -319,16 +313,16 @@ class DPOCliTest(unittest.TestCase):
             main_e_dpo,
             config,
             "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
-            ["train-e-dpo", "--config", "config_e_dpo.yaml", "--output_dir", "e_out"],
+            ["train-e-dpo", "--config", "config_e_dpo.yaml"],
         )
 
         self.assertTrue(trainer.train_called)
-        self.assertEqual(trainer.saved_path, "e_out/final")
+        self.assertEqual(trainer.saved_path, "tmp_dpo/final")
         self.assertIsInstance(trainer.args, EpsilonDPOConfig)
         self.assertEqual(trainer.args.beta, 0.15)
         self.assertEqual(trainer.args.epsilon, 0.02)
         self.assertEqual(trainer.args.max_length, 64)
-        self.assertEqual(trainer.args.output_dir, "e_out")
+        self.assertEqual(trainer.args.output_dir, "tmp_dpo")
         self.assertEqual(set(trainer.train_dataset.column_names), {"prompt", "chosen", "rejected"})
         self.assertEqual(set(trainer.eval_dataset.column_names), {"prompt", "chosen", "rejected"})
         self.assertIsInstance(trainer.processing_class, _DummyTokenizer)
@@ -347,7 +341,7 @@ class DPOCliTest(unittest.TestCase):
             main_e_dpo,
             config,
             "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
-            ["train-e-dpo", "--config", "config_e_dpo.yaml", "--output_dir", "e_out"],
+            ["train-e-dpo", "--config", "config_e_dpo.yaml"],
         )
 
         self.assertEqual(trainer.args.hub_model_id, "user/e-dpo-test")
@@ -355,7 +349,7 @@ class DPOCliTest(unittest.TestCase):
         self.assertIsNone(trainer.saved_path)
         self.assertIsNone(trainer.model.pushed_to_hub)
 
-    def test_main_e_dpo_does_not_require_save_dir_when_output_dir_is_cli_supplied(self):
+    def test_main_e_dpo_requires_save_dir_in_config(self):
         config = _base_dpo_config()
         config["dpo_training"].pop("save_dir")
         config["e_dpo"] = {
@@ -363,15 +357,13 @@ class DPOCliTest(unittest.TestCase):
             "epsilon": 0.02,
         }
 
-        trainer, _ = self._run_main(
-            main_e_dpo,
-            config,
-            "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
-            ["train-e-dpo", "--config", "config_e_dpo.yaml", "--output_dir", "e_out"],
-        )
-
-        self.assertEqual(trainer.args.output_dir, "e_out")
-        self.assertEqual(trainer.saved_path, "e_out/final")
+        with self.assertRaises(KeyError):
+            self._run_main(
+                main_e_dpo,
+                config,
+                "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
+                ["train-e-dpo", "--config", "config_e_dpo.yaml"],
+            )
 
     def test_main_e_dpo_accepts_torchrun_local_rank_argument(self):
         config = _base_dpo_config()
@@ -384,15 +376,13 @@ class DPOCliTest(unittest.TestCase):
                 "train-e-dpo",
                 "--config",
                 "config_e_dpo.yaml",
-                "--output_dir",
-                "e_out",
                 "--local-rank",
                 "1",
             ],
         )
 
         self.assertTrue(trainer.train_called)
-        self.assertEqual(trainer.saved_path, "e_out/final")
+        self.assertEqual(trainer.saved_path, "tmp_dpo/final")
 
     def test_main_e_dpo_initializes_wandb_with_project_and_run_name_and_prints_urls(self):
         config = _base_dpo_config()
@@ -410,13 +400,7 @@ class DPOCliTest(unittest.TestCase):
                     main_e_dpo,
                     config,
                     "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
-                    [
-                        "train-e-dpo",
-                        "--config",
-                        "config_e_dpo.yaml",
-                        "--output_dir",
-                        "e_out",
-                    ],
+                    ["train-e-dpo", "--config", "config_e_dpo.yaml"],
                 )
 
         self.assertTrue(trainer.train_called)
@@ -452,7 +436,7 @@ class DPOCliTest(unittest.TestCase):
             main_beta_dpo,
             config,
             "src.trainers.beta_dpo_trainer.BetaDPOTrainer",
-            ["train-beta-dpo", "--config", "config_beta_dpo.yaml", "--output_dir", "beta_out"],
+            ["train-beta-dpo", "--config", "config_beta_dpo.yaml"],
         )
 
         self.assertEqual(self._fsdp_tokens(trainer.args.fsdp), {"full_shard", "auto_wrap"})
@@ -476,8 +460,6 @@ class DPOCliTest(unittest.TestCase):
                 "train-margin-dpo",
                 "--config",
                 "config_margin_dpo.yaml",
-                "--output_dir",
-                "margin_out",
             ],
         )
 
@@ -499,7 +481,7 @@ class DPOCliTest(unittest.TestCase):
             main_e_dpo,
             config,
             "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
-            ["train-e-dpo", "--config", "config_e_dpo.yaml", "--output_dir", "e_out"],
+            ["train-e-dpo", "--config", "config_e_dpo.yaml"],
         )
 
         self.assertEqual(self._fsdp_tokens(trainer.args.fsdp), {"full_shard", "auto_wrap"})
@@ -524,7 +506,7 @@ class DPOCliTest(unittest.TestCase):
                 main_beta_dpo,
                 config,
                 "src.trainers.beta_dpo_trainer.BetaDPOTrainer",
-                ["train-beta-dpo", "--config", "config_beta_dpo.yaml", "--output_dir", "beta_out"],
+                ["train-beta-dpo", "--config", "config_beta_dpo.yaml"],
             )
 
     def test_main_beta_dpo_fsdp_layer_cls_and_min_num_params_are_mutually_exclusive(self):
@@ -541,7 +523,7 @@ class DPOCliTest(unittest.TestCase):
                 main_beta_dpo,
                 config,
                 "src.trainers.beta_dpo_trainer.BetaDPOTrainer",
-                ["train-beta-dpo", "--config", "config_beta_dpo.yaml", "--output_dir", "beta_out"],
+                ["train-beta-dpo", "--config", "config_beta_dpo.yaml"],
             )
 
     def test_main_beta_dpo_invalid_dataset_max_len_raises_value_error(self):
@@ -553,7 +535,7 @@ class DPOCliTest(unittest.TestCase):
                 main_beta_dpo,
                 config,
                 "src.trainers.beta_dpo_trainer.BetaDPOTrainer",
-                ["train-beta-dpo", "--config", "config_beta_dpo.yaml", "--output_dir", "beta_out"],
+                ["train-beta-dpo", "--config", "config_beta_dpo.yaml"],
             )
 
     def test_main_e_dpo_invalid_dataset_max_len_raises_value_error(self):
@@ -565,5 +547,5 @@ class DPOCliTest(unittest.TestCase):
                 main_e_dpo,
                 config,
                 "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
-                ["train-e-dpo", "--config", "config_e_dpo.yaml", "--output_dir", "e_out"],
+                ["train-e-dpo", "--config", "config_e_dpo.yaml"],
             )

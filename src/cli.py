@@ -27,12 +27,9 @@ def _is_main_process() -> bool:
     )
 
 
-def _build_dpo_parser(
-    *, description: str, default_config: str, default_output_dir: str
-):
+def _build_dpo_parser(*, description: str, default_config: str):
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--config", type=str, default=default_config)
-    parser.add_argument("--output_dir", type=str, default=default_output_dir)
     parser.add_argument(
         "--local-rank",
         "--local_rank",
@@ -201,7 +198,7 @@ def _build_common_dpo_config_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
     precision = str(config.get("precision", "fp32")).lower()
     wandb_project = dpo_train_args.get("wandb_project") or dpo_train_args.get("report")
     fsdp_options = _parse_dpo_fsdp_options(dpo_train_args)
-    checkpoint_output_dir = str(dpo_train_args.get("save_dir", "dpo_checkpoints"))
+    checkpoint_output_dir = str(dpo_train_args["save_dir"])
     if fsdp_options["enabled"] and fsdp_options["state_dict_type"] is not None:
         os.environ["FSDP_STATE_DICT_TYPE"] = str(fsdp_options["state_dict_type"])
 
@@ -297,9 +294,7 @@ def _maybe_init_wandb(config: Dict[str, Any]) -> None:
         print(f"[DPO] wandb run_url={run_url}")
 
 
-def _finalize_dpo_training(
-    trainer: Any, cli_output_dir: str, dpo_train_args: Dict[str, Any]
-) -> None:
+def _finalize_dpo_training(trainer: Any, dpo_train_args: Dict[str, Any]) -> None:
     trainer.train()
 
     hub_model_id = dpo_train_args.get("hub_model_id")
@@ -311,7 +306,7 @@ def _finalize_dpo_training(
             print(f"Model uploaded successfully to: https://huggingface.co/{hub_model_id}")
         return
 
-    trainer.save_model(os.path.join(cli_output_dir, "final"))
+    trainer.save_model(os.path.join(str(dpo_train_args["save_dir"]), "final"))
 
 
 def main_sft():
@@ -352,7 +347,7 @@ def main_dpo():
     )
 
 
-def run_beta_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
+def run_beta_dpo_training(config: Dict[str, Any]) -> None:
     """Run one Beta DPO training job from an in-memory config."""
     from .trainers.beta_dpo_trainer import BetaDPOConfig, BetaDPOTrainer
 
@@ -380,10 +375,10 @@ def run_beta_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
         eval_dataset=eval_ds,
         processing_class=tokenizer,
     )
-    _finalize_dpo_training(trainer, output_dir, config["dpo_training"])
+    _finalize_dpo_training(trainer, config["dpo_training"])
 
 
-def run_margin_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
+def run_margin_dpo_training(config: Dict[str, Any]) -> None:
     """Run one Margin DPO training job from an in-memory config."""
     from .trainers.margin_dpo_trainer import MarginDPOTrainer
 
@@ -404,10 +399,10 @@ def run_margin_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
         margin_log_path=str(margin_cfg.get("log_dir", "logs/margins")),
         processing_class=tokenizer,
     )
-    _finalize_dpo_training(trainer, output_dir, config["dpo_training"])
+    _finalize_dpo_training(trainer, config["dpo_training"])
 
 
-def run_e_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
+def run_e_dpo_training(config: Dict[str, Any]) -> None:
     """Run one Epsilon DPO training job from an in-memory config."""
     from .trainers.epsilon_dpo_trainer import EpsilonDPOConfig, EpsilonDPOTrainer
 
@@ -415,11 +410,8 @@ def run_e_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
     train_ds, eval_ds = _build_hh_dpo_datasets(config, tokenizer, policy_name)
 
     e_dpo_cfg = config.get("e_dpo", {})
-    common_kwargs = _build_common_dpo_config_kwargs(config)
-    # Keep all epsilon-DPO artifacts under the CLI-selected output directory.
-    common_kwargs["output_dir"] = output_dir
     training_args = EpsilonDPOConfig(
-        **common_kwargs,
+        **_build_common_dpo_config_kwargs(config),
         beta=float(e_dpo_cfg.get("beta", 0.1)),
         epsilon=float(e_dpo_cfg.get("epsilon", 0.01)),
     )
@@ -434,7 +426,7 @@ def run_e_dpo_training(config: Dict[str, Any], *, output_dir: str) -> None:
         eval_dataset=eval_ds,
         processing_class=tokenizer,
     )
-    _finalize_dpo_training(trainer, output_dir, config["dpo_training"])
+    _finalize_dpo_training(trainer, config["dpo_training"])
 
 
 def main_beta_dpo():
@@ -442,11 +434,10 @@ def main_beta_dpo():
     parser = _build_dpo_parser(
         description="Run Beta DPO training",
         default_config="config_beta_dpo.yaml",
-        default_output_dir="beta_dpo_out",
     )
     args = parser.parse_args()
     config = load_yaml(args.config)
-    run_beta_dpo_training(config, output_dir=args.output_dir)
+    run_beta_dpo_training(config)
 
 
 def main_margin_dpo():
@@ -454,11 +445,10 @@ def main_margin_dpo():
     parser = _build_dpo_parser(
         description="Run Margin DPO training",
         default_config="config_margin_dpo.yaml",
-        default_output_dir="margin_dpo_out",
     )
     args = parser.parse_args()
     config = load_yaml(args.config)
-    run_margin_dpo_training(config, output_dir=args.output_dir)
+    run_margin_dpo_training(config)
 
 
 def main_e_dpo():
@@ -466,8 +456,7 @@ def main_e_dpo():
     parser = _build_dpo_parser(
         description="Run Epsilon DPO training",
         default_config="config_e_dpo.yaml",
-        default_output_dir="e_dpo_out",
     )
     args = parser.parse_args()
     config = load_yaml(args.config)
-    run_e_dpo_training(config, output_dir=args.output_dir)
+    run_e_dpo_training(config)
