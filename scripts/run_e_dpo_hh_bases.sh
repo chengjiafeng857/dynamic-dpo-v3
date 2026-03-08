@@ -36,7 +36,6 @@ NNODES="${NNODES:-1}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-e_dpo_hh_outputs}"
 LOG_ROOT="${LOG_ROOT:-logs}"
 REPO_PREFIX="${REPO_PREFIX:-}"
-OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 
 if [[ -z "${HF_NAMESPACE}" ]]; then
   echo "Missing hf_namespace." >&2
@@ -49,7 +48,7 @@ if [[ ! -f "${BASE_CONFIG}" ]]; then
   exit 1
 fi
 
-mkdir -p "${LOG_ROOT}" "${OUTPUT_ROOT}"
+mkdir -p "${LOG_ROOT}"
 
 timestamp="$(date +%Y%m%d_%H%M%S)"
 torchrun_log_root="${LOG_ROOT}/torchrun_${timestamp}"
@@ -66,15 +65,11 @@ cleanup() {
     echo "Training failed with exit code ${train_exit_code}."
   fi
 
-  if [[ -z "${RUNPOD_POD_ID:-}" ]]; then
-    echo "RUNPOD_POD_ID is not set. Are you running in RunPod?"
-    echo "Skipping auto-shutdown."
-    return
+  if [[ -n "${RUNPOD_POD_ID:-}" ]]; then
+    echo "Shutting down pod ${RUNPOD_POD_ID} in 10 seconds..."
+    sleep 10
+    runpodctl stop pod "${RUNPOD_POD_ID}" || true
   fi
-
-  echo "Shutting down pod ${RUNPOD_POD_ID} in 10 seconds..."
-  sleep 10
-  runpodctl stop pod "${RUNPOD_POD_ID}" || true
 }
 trap cleanup EXIT
 
@@ -140,7 +135,6 @@ PY
   PYTHONUNBUFFERED=1 \
   PYTHONFAULTHANDLER=1 \
   TOKENIZERS_PARALLELISM=false \
-  OMP_NUM_THREADS="${OMP_NUM_THREADS}" \
   NCCL_ASYNC_ERROR_HANDLING=1 \
   NCCL_DEBUG=WARN \
   TRANSFORMERS_VERBOSITY=warning \
