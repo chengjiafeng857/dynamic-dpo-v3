@@ -135,6 +135,7 @@ class _DummyTrainer:
         self.margin_log_path = kwargs.get("margin_log_path")
         self.train_called = False
         self.saved_path = None
+        self.push_to_hub_called = False
         _DummyTrainer.instances.append(self)
 
     def train(self):
@@ -142,6 +143,9 @@ class _DummyTrainer:
 
     def save_model(self, path):
         self.saved_path = path
+
+    def push_to_hub(self):
+        self.push_to_hub_called = True
 
 
 class _DummyWandbRun:
@@ -330,6 +334,25 @@ class DPOCliTest(unittest.TestCase):
         self.assertIsInstance(trainer.processing_class, _DummyTokenizer)
         self.assertTrue(ref_model.eval_called)
         self.assertFalse(ref_model.parameters()[0].requires_grad_value)
+
+    def test_main_e_dpo_uses_trainer_push_to_hub_when_hub_model_id_is_set(self):
+        config = _base_dpo_config()
+        config["dpo_training"]["hub_model_id"] = "user/e-dpo-test"
+        config["e_dpo"] = {
+            "beta": 0.15,
+            "epsilon": 0.02,
+        }
+
+        trainer, _ = self._run_main(
+            main_e_dpo,
+            config,
+            "src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer",
+            ["train-e-dpo", "--config", "config_e_dpo.yaml", "--output_dir", "e_out"],
+        )
+
+        self.assertEqual(trainer.args.hub_model_id, "user/e-dpo-test")
+        self.assertTrue(trainer.push_to_hub_called)
+        self.assertIsNone(trainer.model.pushed_to_hub)
 
     def test_main_e_dpo_accepts_torchrun_local_rank_argument(self):
         config = _base_dpo_config()

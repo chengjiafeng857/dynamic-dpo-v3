@@ -245,6 +245,7 @@ def _build_common_dpo_config_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
         "metric_for_best_model",
         "greater_is_better",
         "save_only_model",
+        "hub_model_id",
     )
     for field_name in optional_fields:
         if field_name in dpo_train_args:
@@ -302,10 +303,12 @@ def _finalize_dpo_training(
     trainer.save_model(os.path.join(cli_output_dir, "final"))
 
     hub_model_id = dpo_train_args.get("hub_model_id")
-    if hub_model_id and _is_main_process():
-        print(f"\nPushing model to HuggingFace Hub: {hub_model_id}")
-        trainer.model.push_to_hub(hub_model_id)
-        print(f"Model uploaded successfully to: https://huggingface.co/{hub_model_id}")
+    if hub_model_id:
+        if _is_main_process():
+            print(f"\nPushing model to HuggingFace Hub: {hub_model_id}")
+        trainer.push_to_hub()
+        if _is_main_process():
+            print(f"Model uploaded successfully to: https://huggingface.co/{hub_model_id}")
 
 
 def main_sft():
