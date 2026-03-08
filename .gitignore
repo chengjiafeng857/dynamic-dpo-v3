@@ -1,7 +1,7 @@
 # OS files
 .DS_Store
 Thumbs.db
-
+reference/
 # Python bytecode / caches
 __pycache__/
 *.py[cod]
