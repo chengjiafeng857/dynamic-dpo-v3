@@ -214,6 +214,7 @@ def _build_common_dpo_config_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
         "eval_steps": int(dpo_train_args["eval_steps"]),
         "save_strategy": str(dpo_train_args.get("save_strategy", "steps")),
         "save_steps": int(dpo_train_args["save_steps"]),
+        "save_total_limit": int(dpo_train_args.get("save_total_limit", 1)),
         "fp16": precision == "fp16",
         "bf16": precision == "bf16",
         "gradient_accumulation_steps": int(
@@ -240,7 +241,6 @@ def _build_common_dpo_config_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     optional_fields = (
-        "save_total_limit",
         "load_best_model_at_end",
         "metric_for_best_model",
         "greater_is_better",

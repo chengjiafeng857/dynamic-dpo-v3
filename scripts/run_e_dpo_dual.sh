@@ -8,6 +8,8 @@ NNODES="${NNODES:-1}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-e_dpo_hh_outputs}"
 LOG_ROOT="${LOG_ROOT:-logs}"
 REPO_PREFIX="${REPO_PREFIX:-}"
+STOP_RUNPOD_AFTER_RUN="${STOP_RUNPOD_AFTER_RUN:-auto}"
+RUNPOD_STOP_COMMAND="${RUNPOD_STOP_COMMAND:-sudo poweroff}"
 
 usage() {
   cat <<'EOF'
@@ -32,6 +34,11 @@ Environment overrides:
   OUTPUT_ROOT      (default: e_dpo_hh_outputs)
   LOG_ROOT         (default: logs)
   REPO_PREFIX      (optional prefix prepended to run name)
+  STOP_RUNPOD_AFTER_RUN
+                  (default: auto; use 1/true/yes to force shutdown,
+                   0/false/no to disable, auto to stop only on Runpod)
+  RUNPOD_STOP_COMMAND
+                  (default: sudo poweroff)
 EOF
 }
 
@@ -177,6 +184,38 @@ cleanup_checkpoints() {
   fi
 }
 
+should_stop_runpod() {
+  local normalized
+  normalized="$(printf '%s' "$STOP_RUNPOD_AFTER_RUN" | tr '[:upper:]' '[:lower:]')"
+
+  case "$normalized" in
+    1|true|yes|on)
+      return 0
+      ;;
+    0|false|no|off)
+      return 1
+      ;;
+    auto)
+      [[ -n "${RUNPOD_POD_ID:-}" ]]
+      return
+      ;;
+    *)
+      echo "Invalid STOP_RUNPOD_AFTER_RUN value: $STOP_RUNPOD_AFTER_RUN" >&2
+      exit 1
+      ;;
+  esac
+}
+
+stop_runpod() {
+  if ! should_stop_runpod; then
+    echo "[runpod] shutdown skipped"
+    return
+  fi
+
+  echo "[runpod] stopping pod with command: ${RUNPOD_STOP_COMMAND}"
+  /bin/zsh -lc "$RUNPOD_STOP_COMMAND"
+}
+
 run_one() {
   local label="$1"
   local config_path="$2"
@@ -229,4 +268,5 @@ if [[ "$PREPARE_ONLY" -eq 1 ]]; then
   echo "Prepare-only run complete."
 else
   echo "Dual e-DPO run complete."
+  stop_runpod
 fi
