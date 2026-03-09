@@ -76,8 +76,6 @@ def _load_policy_ref_and_tokenizer(
         tokenizer.pad_token = tokenizer.eos_token
 
     model_kwargs: Dict[str, Any] = {}
-    if torch_dtype is not None:
-        model_kwargs["torch_dtype"] = torch_dtype
     if attn_implementation:
         model_kwargs["attn_implementation"] = str(attn_implementation)
         if (

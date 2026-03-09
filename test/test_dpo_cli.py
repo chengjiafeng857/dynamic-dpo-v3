@@ -447,14 +447,12 @@ class DPOCliTest(unittest.TestCase):
                     "dummy/policy",
                     {
                         "attn_implementation": "flash_attention_2",
-                        "torch_dtype": torch.bfloat16,
                     },
                 ),
                 (
                     "dummy/ref",
                     {
                         "attn_implementation": "flash_attention_2",
-                        "torch_dtype": torch.bfloat16,
                     },
                 ),
             ],
