@@ -24,7 +24,7 @@ dpo_training:
   gradient_accumulation: 32
   max_grad_norm: 1.0
   warmup_steps: 60
-  gradient_checkpointing: true
+  gradient_checkpointing: false
   attn_implementation: flash_attention_2
   wandb_project: e_dpo
   report: null
@@ -50,7 +50,7 @@ dpo_training:
     use_orig_params: true
     cpu_ram_efficient_loading: true
     sync_module_states: true
-    activation_checkpointing: false
+    activation_checkpointing: true
     state_dict_type: SHARDED_STATE_DICT
 
 e_dpo:

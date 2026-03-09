@@ -3,10 +3,12 @@
 import os
 from typing import Any, Dict
 
+import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM
 from trl import SFTConfig, SFTTrainer
 
+from ..config.loader import resolve_torch_dtype
 from ..data.sft_dataset import (
     build_hh_sft_dataset,
     load_tokenizer,
@@ -293,8 +295,19 @@ def run_sft_training(config: Dict[str, Any]) -> SFTTrainer:
     training_args = SFTConfig(**sft_args_kwargs)
     attn_implementation = sft_cfg.get("attn_implementation")
     model_kwargs: Dict[str, Any] = {}
+    torch_dtype = resolve_torch_dtype(config.get("precision", "fp32"))
     if attn_implementation:
         model_kwargs["attn_implementation"] = str(attn_implementation)
+        if (
+            str(attn_implementation) == "flash_attention_2"
+            and torch_dtype not in {torch.float16, torch.bfloat16}
+        ):
+            raise ValueError(
+                "flash_attention_2 requires precision fp16 or bf16; "
+                f"got precision={config.get('precision', 'fp32')}."
+            )
+    if torch_dtype is not None:
+        model_kwargs["torch_dtype"] = torch_dtype
     model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
 
     mode = "ultrachat" if is_ultrachat else "hh"

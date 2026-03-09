@@ -6,6 +6,7 @@ from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import torch
 from datasets import Dataset
 
 from src.data.templates import get_chat_template
@@ -388,6 +389,7 @@ class SFTPipelineSmokeTest(unittest.TestCase):
 
     def test_attn_implementation_is_forwarded_to_model_loader(self):
         config = _base_sft_config()
+        config["precision"] = "bf16"
         config["sft_training"]["attn_implementation"] = "flash_attention_2"
         raw_hh = Dataset.from_list(
             [
@@ -421,7 +423,34 @@ class SFTPipelineSmokeTest(unittest.TestCase):
             captured_kwargs.get("attn_implementation"),
             "flash_attention_2",
         )
+        self.assertEqual(captured_kwargs.get("torch_dtype"), torch.bfloat16)
         self.assertIn("attn_impl=flash_attention_2", buffer.getvalue())
+
+    def test_flash_attention_2_requires_mixed_precision(self):
+        config = _base_sft_config()
+        config["sft_training"]["attn_implementation"] = "flash_attention_2"
+        raw_hh = Dataset.from_list(
+            [
+                {"chosen": "\n\nHuman: Hi\n\nAssistant: Hello!"},
+                {"chosen": "\n\nHuman: Bye\n\nAssistant: See you."},
+            ]
+        )
+
+        with (
+            patch(
+                "src.trainers.sft_trainer.load_dataset",
+                side_effect=lambda *args, **kwargs: raw_hh,
+            ),
+            patch(
+                "src.data.sft_dataset.AutoTokenizer.from_pretrained",
+                side_effect=lambda *args, **kwargs: _DummyTokenizer(),
+            ),
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                "flash_attention_2 requires precision fp16 or bf16",
+            ):
+                run_sft_training(config)
 
     def test_fsdp_save_only_model_is_auto_overridden(self):
         config = _base_sft_config()

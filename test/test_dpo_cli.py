@@ -7,6 +7,7 @@ from contextlib import redirect_stdout
 from typing import Callable, Optional
 from unittest.mock import patch
 
+import torch
 import trl
 from datasets import Dataset
 from trl import DPOConfig
@@ -402,6 +403,7 @@ class DPOCliTest(unittest.TestCase):
 
     def test_main_e_dpo_passes_attn_implementation_to_policy_and_ref_models(self):
         config = _base_dpo_config()
+        config["precision"] = "bf16"
         config["dpo_training"]["attn_implementation"] = "flash_attention_2"
         config["e_dpo"] = {
             "beta": 0.15,
@@ -439,10 +441,44 @@ class DPOCliTest(unittest.TestCase):
         self.assertEqual(
             model_calls,
             [
-                ("dummy/policy", {"attn_implementation": "flash_attention_2"}),
-                ("dummy/ref", {"attn_implementation": "flash_attention_2"}),
+                (
+                    "dummy/policy",
+                    {
+                        "attn_implementation": "flash_attention_2",
+                        "torch_dtype": torch.bfloat16,
+                    },
+                ),
+                (
+                    "dummy/ref",
+                    {
+                        "attn_implementation": "flash_attention_2",
+                        "torch_dtype": torch.bfloat16,
+                    },
+                ),
             ],
         )
+
+    def test_main_e_dpo_rejects_flash_attention_2_with_fp32_precision(self):
+        config = _base_dpo_config()
+        config["dpo_training"]["attn_implementation"] = "flash_attention_2"
+        config["e_dpo"] = {
+            "beta": 0.15,
+            "epsilon": 0.02,
+        }
+
+        with (
+            patch("src.cli.load_yaml", return_value=config),
+            patch(
+                "src.cli.AutoTokenizer.from_pretrained",
+                side_effect=lambda *args, **kwargs: _DummyTokenizer(),
+            ),
+            patch.object(sys, "argv", ["train-e-dpo", "--config", "config_e_dpo.yaml"]),
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                "flash_attention_2 requires precision fp16 or bf16",
+            ):
+                main_e_dpo()
 
     def test_main_e_dpo_uses_trainer_push_to_hub_when_hub_model_id_is_set(self):
         config = _base_dpo_config()

@@ -4,11 +4,12 @@ import argparse
 import os
 from typing import Any, Dict, Tuple
 
+import torch
 from datasets import Dataset, load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import DPOConfig
 
-from .config.loader import load_yaml
+from .config.loader import load_yaml, resolve_torch_dtype
 from .data.hh_dataset import (
     apply_chat_template_to_dataset,
     build_HH_dataset,
@@ -68,6 +69,7 @@ def _load_policy_ref_and_tokenizer(
     ref_name = config["ref_name"]
     dpo_train_args = config.get("dpo_training", {})
     attn_implementation = dpo_train_args.get("attn_implementation")
+    torch_dtype = resolve_torch_dtype(config.get("precision", "fp32"))
 
     tokenizer = AutoTokenizer.from_pretrained(policy_name, use_fast=True)
     if tokenizer.pad_token_id is None:
@@ -76,6 +78,16 @@ def _load_policy_ref_and_tokenizer(
     model_kwargs: Dict[str, Any] = {}
     if attn_implementation:
         model_kwargs["attn_implementation"] = str(attn_implementation)
+        if (
+            str(attn_implementation) == "flash_attention_2"
+            and torch_dtype not in {torch.float16, torch.bfloat16}
+        ):
+            raise ValueError(
+                "flash_attention_2 requires precision fp16 or bf16; "
+                f"got precision={config.get('precision', 'fp32')}."
+            )
+    if torch_dtype is not None:
+        model_kwargs["torch_dtype"] = torch_dtype
 
     policy = AutoModelForCausalLM.from_pretrained(policy_name, **model_kwargs)
     ref_model = AutoModelForCausalLM.from_pretrained(ref_name, **model_kwargs)
