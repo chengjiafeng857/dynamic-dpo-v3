@@ -26,6 +26,7 @@ dpo_training:
   max_grad_norm: 1.0
   warmup_steps: 60
   gradient_checkpointing: true
+  activation_offloading: true
   wandb_project: e_dpo
   report: null
   run_name: hh-e-dpo
