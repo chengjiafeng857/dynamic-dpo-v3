@@ -15,13 +15,13 @@ dataset:
 
 dpo_training:
   epochs: 1
-  batch_size: 4
+  batch_size: 2
   eval_batch_size: 4
   learning_rate: 5e-7
   log_steps: 5
-  eval_steps: 100
-  save_steps: 100
-  gradient_accumulation: 4
+  eval_steps: 300
+  save_steps: 300
+  gradient_accumulation: 16
   max_grad_norm: 1.0
   warmup_steps: 60
   gradient_checkpointing: true
