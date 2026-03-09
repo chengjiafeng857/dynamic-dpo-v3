@@ -21,7 +21,7 @@ dpo_training:
   log_steps: 5
   eval_steps: 300
   save_steps: 300
-  gradient_accumulation: 16
+  gradient_accumulation: 32
   max_grad_norm: 1.0
   warmup_steps: 60
   gradient_checkpointing: true
