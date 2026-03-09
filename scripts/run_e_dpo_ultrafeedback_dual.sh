@@ -7,6 +7,7 @@ NPROC_PER_NODE="${NPROC_PER_NODE:-4}"
 NNODES="${NNODES:-1}"
 STOP_RUNPOD_AFTER_RUN="${STOP_RUNPOD_AFTER_RUN:-auto}"
 RUNPOD_STOP_COMMAND="${RUNPOD_STOP_COMMAND:-runpodctl stop pod \"\$RUNPOD_POD_ID\"}"
+INTERRUPTED_BY_USER=0
 
 should_stop_runpod() {
   case "$(printf '%s' "$STOP_RUNPOD_AFTER_RUN" | tr '[:upper:]' '[:lower:]')" in
@@ -38,8 +39,19 @@ stop_runpod() {
   bash -lc "$RUNPOD_STOP_COMMAND"
 }
 
+handle_interrupt() {
+  INTERRUPTED_BY_USER=1
+  echo "Keyboard interrupt received. Skipping auto-shutdown."
+  exit 130
+}
+
 on_exit() {
   local exit_code="$?"
+
+  if [[ "$INTERRUPTED_BY_USER" -eq 1 ]]; then
+    exit "$exit_code"
+  fi
+
   if [[ "$exit_code" -eq 0 ]]; then
     echo "UltraFeedback e-DPO runs complete."
   else
@@ -66,6 +78,7 @@ run_one() {
     --config "$config_path"
 }
 
+trap handle_interrupt INT
 trap on_exit EXIT
 
 run_one "llama" "$LLAMA_CONFIG"

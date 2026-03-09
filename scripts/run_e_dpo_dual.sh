@@ -43,6 +43,7 @@ EOF
 PREPARE_ONLY=0
 HF_NAMESPACE=""
 RUN_STARTED=0
+INTERRUPTED_BY_USER=0
 
 while (($# > 0)); do
   case "$1" in
@@ -215,10 +216,20 @@ stop_runpod() {
   bash -lc "$RUNPOD_STOP_COMMAND"
 }
 
+handle_interrupt() {
+  INTERRUPTED_BY_USER=1
+  echo "Keyboard interrupt received. Skipping auto-shutdown."
+  exit 130
+}
+
 handle_exit() {
   local exit_code="$1"
 
   if [[ "$PREPARE_ONLY" -eq 1 || "$RUN_STARTED" -eq 0 ]]; then
+    return "$exit_code"
+  fi
+
+  if [[ "$INTERRUPTED_BY_USER" -eq 1 ]]; then
     return "$exit_code"
   fi
 
@@ -274,6 +285,7 @@ run_one() {
   cleanup_checkpoints "$label" "$checkpoint_dir"
 }
 
+trap handle_interrupt INT
 trap 'handle_exit "$?"' EXIT
 
 RUN_STARTED=1

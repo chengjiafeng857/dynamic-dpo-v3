@@ -29,7 +29,7 @@ dpo_training:
   wandb_project: e_dpo
   report: null
   run_name: hh-e-dpo
-  hub_model_id: jackf857/hh-harmless-base-e-dpo
+  hub_model_id: jackf857/Llama-8b-sft-hh-harmless-base-e-dpo
   save_dir: e_dpo_checkpoints
   save_strategy: steps
   load_best_model_at_end: false

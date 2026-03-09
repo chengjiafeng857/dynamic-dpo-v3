@@ -29,7 +29,7 @@ dpo_training:
   wandb_project: e_dpo
   report: null
   run_name: ultrafeedback-qwen3-8b-e-dpo
-  hub_model_id: W-61/ultrafeedback-qwen3-8b-e-dpo
+  hub_model_id: jackf857/Qwen3-8b-ultrafeedback-binarized-e-dpo
   save_dir: e_dpo_ultrafeedback_qwen_checkpoints
   save_strategy: steps
   load_best_model_at_end: false
