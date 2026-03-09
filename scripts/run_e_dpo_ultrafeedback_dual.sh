@@ -6,7 +6,7 @@ QWEN_CONFIG="${QWEN_CONFIG:-config_e_dpo_ultrafeedback_qwen.yaml}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-4}"
 NNODES="${NNODES:-1}"
 STOP_RUNPOD_AFTER_RUN="${STOP_RUNPOD_AFTER_RUN:-auto}"
-RUNPOD_STOP_COMMAND="${RUNPOD_STOP_COMMAND:-sudo poweroff}"
+RUNPOD_STOP_COMMAND="${RUNPOD_STOP_COMMAND:-runpodctl stop pod \"\$RUNPOD_POD_ID\"}"
 
 should_stop_runpod() {
   case "$(printf '%s' "$STOP_RUNPOD_AFTER_RUN" | tr '[:upper:]' '[:lower:]')" in
@@ -26,6 +26,14 @@ stop_runpod() {
     return
   fi
 
+  if [[ -z "${RUNPOD_POD_ID:-}" ]]; then
+    echo "RUNPOD_POD_ID is not set. Are you running in RunPod?"
+    echo "Skipping auto-shutdown."
+    return
+  fi
+
+  echo "Shutting down pod ${RUNPOD_POD_ID} in 10 seconds..."
+  sleep 10
   echo "[runpod] stopping pod with command: ${RUNPOD_STOP_COMMAND}"
   bash -lc "$RUNPOD_STOP_COMMAND"
 }
