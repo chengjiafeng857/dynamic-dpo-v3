@@ -1,6 +1,6 @@
 # UltraFeedback Binarized Epsilon DPO example config (SimPO base-style splits).
-policy_name: princeton-nlp/Llama-3-Base-8B-SFT
-ref_name: princeton-nlp/Llama-3-Base-8B-SFT
+policy_name: W-61/ultrachat-llama-3-8b-sft
+ref_name: W-61/ultrachat-llama-3-8b-sft
 precision: bf16
 
 dataset:
@@ -25,6 +25,7 @@ dpo_training:
   max_grad_norm: 1.0
   warmup_steps: 60
   gradient_checkpointing: true
+  attn_implementation: flash_attention_2
   wandb_project: e_dpo
   report: null
   run_name: ultrafeedback-base-e-dpo
