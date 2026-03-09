@@ -1,9 +1,8 @@
-from contextlib import nullcontext
-from typing import Callable, Optional, Union, Literal
+from typing import Callable, Optional, Union
 import warnings
 
+from accelerate.utils import is_peft_model
 import torch
-import torch.amp as amp
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -15,13 +14,13 @@ from transformers import (
     PreTrainedTokenizerBase,
     ProcessorMixin,
 )
-from transformers.utils import is_torch_xpu_available
 from transformers.trainer_callback import TrainerCallback
 from transformers.trainer_utils import EvalLoopOutput
 
 from datasets import Dataset
 from dataclasses import dataclass, field
 from trl import DPOTrainer, DPOConfig
+from trl.trainer.dpo_trainer import disable_gradient_checkpointing, use_adapter
 from trl.trainer.utils import selective_log_softmax, entropy_from_logits
 
 @dataclass
@@ -150,6 +149,30 @@ class EpsilonDPOTrainer(DPOTrainer):
 
         self.epsilon = args.epsilon
         self.steps = 0.
+
+    def _sum_completion_logps(
+        self,
+        per_token_logps: torch.Tensor,
+        shift_completion_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        per_token_logps = per_token_logps.clone()
+        per_token_logps[shift_completion_mask == 0] = 0.0
+
+        if self.ld_alpha is None:
+            return per_token_logps.sum(dim=1)
+
+        comp_pos = shift_completion_mask.cumsum(dim=1)
+        comp_lens = shift_completion_mask.sum(dim=1).long()
+        chosen_lens, rejected_lens = comp_lens.chunk(2, dim=0)
+        shared_lens = torch.minimum(chosen_lens, rejected_lens)
+        shared_lens = torch.cat([shared_lens, shared_lens], dim=0).to(per_token_logps.device)
+
+        shared_mask = (comp_pos > 0) & (comp_pos <= shared_lens.unsqueeze(1))
+        tail_mask = comp_pos > shared_lens.unsqueeze(1)
+
+        shared_logps = (per_token_logps * shared_mask).sum(dim=1)
+        tail_logps = (per_token_logps * tail_mask).sum(dim=1)
+        return shared_logps + self.ld_alpha * tail_logps
     
     def _estimate_epsilon_steps(
         self,
@@ -157,59 +180,21 @@ class EpsilonDPOTrainer(DPOTrainer):
         ref_logits: torch.Tensor,
         shift_labels: torch.Tensor,
         shift_completion_mask: torch.Tensor,
+        base_logps: torch.Tensor,
     ) -> torch.Tensor:
         """
         Estimate ε-step direction for each example.
         Returns steps in {-1, 0, +1} with shape [batch_size/2].
         """
-        # per-token logps under perturbed logits
         p_epsilon_logits = ((1.0 + self.epsilon) * logits) - (self.epsilon * ref_logits)
-        n_epsilon_logits = ((1.0 - self.epsilon) * logits) + (self.epsilon * ref_logits)
-
         p_eps_per_token_logps = selective_log_softmax(p_epsilon_logits, shift_labels)
+        p_eps_logps = self._sum_completion_logps(p_eps_per_token_logps, shift_completion_mask)
+        del p_epsilon_logits, p_eps_per_token_logps
+
+        n_epsilon_logits = ((1.0 - self.epsilon) * logits) + (self.epsilon * ref_logits)
         n_eps_per_token_logps = selective_log_softmax(n_epsilon_logits, shift_labels)
-
-        p_eps_per_token_logps[shift_completion_mask == 0] = 0.0
-        n_eps_per_token_logps[shift_completion_mask == 0] = 0.0
-
-        if self.ld_alpha is None:
-            p_eps_logps = p_eps_per_token_logps.sum(dim=1)
-            n_eps_logps = n_eps_per_token_logps.sum(dim=1)
-        else:
-            comp_pos = shift_completion_mask.cumsum(dim=1)
-            comp_lens = shift_completion_mask.sum(dim=1).long()
-            chosen_lens, rejected_lens = comp_lens.chunk(2, dim=0)
-            shared_lens = torch.minimum(chosen_lens, rejected_lens)
-            shared_lens = torch.cat([shared_lens, shared_lens], dim=0).to(logits.device)
-
-            shared_mask = (comp_pos > 0) & (comp_pos <= shared_lens.unsqueeze(1))
-            tail_mask = comp_pos > shared_lens.unsqueeze(1)
-
-            p_eps_shared = (p_eps_per_token_logps * shared_mask).sum(dim=1)
-            p_eps_tail = (p_eps_per_token_logps * tail_mask).sum(dim=1)
-            p_eps_logps = p_eps_shared + self.ld_alpha * p_eps_tail
-
-            n_eps_shared = (n_eps_per_token_logps * shared_mask).sum(dim=1)
-            n_eps_tail = (n_eps_per_token_logps * tail_mask).sum(dim=1)
-            n_eps_logps = n_eps_shared + self.ld_alpha * n_eps_tail
-
-        all_logps = selective_log_softmax(logits, shift_labels)
-        all_logps[shift_completion_mask == 0] = 0.0
-        if self.ld_alpha is None:
-            base_logps = all_logps.sum(dim=1)
-        else:
-            comp_pos = shift_completion_mask.cumsum(dim=1)
-            comp_lens = shift_completion_mask.sum(dim=1).long()
-            chosen_lens, rejected_lens = comp_lens.chunk(2, dim=0)
-            shared_lens = torch.minimum(chosen_lens, rejected_lens)
-            shared_lens = torch.cat([shared_lens, shared_lens], dim=0).to(logits.device)
-
-            shared_mask = (comp_pos > 0) & (comp_pos <= shared_lens.unsqueeze(1))
-            tail_mask = comp_pos > shared_lens.unsqueeze(1)
-
-            shared_logps = (all_logps * shared_mask).sum(dim=1)
-            tail_logps = (all_logps * tail_mask).sum(dim=1)
-            base_logps = shared_logps + self.ld_alpha * tail_logps
+        n_eps_logps = self._sum_completion_logps(n_eps_per_token_logps, shift_completion_mask)
+        del n_epsilon_logits, n_eps_per_token_logps
 
         base_chosen, base_rejected = base_logps.chunk(2, dim=0)
         p_chosen, p_rejected = p_eps_logps.chunk(2, dim=0)
@@ -246,9 +231,7 @@ class EpsilonDPOTrainer(DPOTrainer):
         shift_labels = input_ids[..., 1:].contiguous()
         shift_completion_mask = completion_mask[..., 1:].contiguous()
         per_token_logps = selective_log_softmax(shift_logits, shift_labels)
-        per_token_logps[shift_completion_mask == 0] = 0.0  # mask out non-completion tokens
-
-        logps = per_token_logps.sum(dim=1)
+        logps = self._sum_completion_logps(per_token_logps, shift_completion_mask)
         chosen_logps, rejected_logps = logps.chunk(2, dim=0)
 
         # reference forward (no grad)
@@ -256,12 +239,18 @@ class EpsilonDPOTrainer(DPOTrainer):
             ref_chosen_logps, ref_rejected_logps = inputs["ref_chosen_logps"], inputs["ref_rejected_logps"]
             ref_shift_logits = None
         else:
-            with torch.no_grad():
-                ref_outputs = self.ref_model(**model_kwargs)
+            with torch.no_grad(), disable_gradient_checkpointing(
+                self.model, self.args.gradient_checkpointing_kwargs
+            ):
+                if is_peft_model(model) and self.ref_model is None:
+                    model = self.accelerator.unwrap_model(model)
+                    with use_adapter(model, adapter_name="ref" if "ref" in model.peft_config else None):
+                        ref_outputs = self.model(**model_kwargs)
+                else:
+                    ref_outputs = self.ref_model(**model_kwargs)
             ref_shift_logits = ref_outputs.logits[..., :-1, :].contiguous()
             ref_per_token_logps = selective_log_softmax(ref_shift_logits, shift_labels)
-            ref_per_token_logps[shift_completion_mask == 0] = 0.0
-            ref_logps = ref_per_token_logps.sum(dim=1)
+            ref_logps = self._sum_completion_logps(ref_per_token_logps, shift_completion_mask)
             ref_chosen_logps, ref_rejected_logps = ref_logps.chunk(2, dim=0)
 
         # DPO logits
@@ -278,6 +267,7 @@ class EpsilonDPOTrainer(DPOTrainer):
                 ref_logits=ref_shift_logits,
                 shift_labels=shift_labels,
                 shift_completion_mask=shift_completion_mask,
+                base_logps=logps,
             )
 
         updated_beta = self.beta / (1.0 + self.epsilon * steps)
