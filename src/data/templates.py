@@ -144,14 +144,14 @@ def get_assistant_generation_suffix(template_name: str) -> str:
 def ensure_tokenizer_chat_template(
     tokenizer: Any, *, model_name: str, configured_name: Optional[str] = None
 ) -> Optional[str]:
-    """Ensure the tokenizer has an appropriate chat template configured."""
+    """Ensure the tokenizer has a chat template, preferring any native template."""
+    if getattr(tokenizer, "chat_template", None):
+        return None
+
     template_name = resolve_chat_template_name(model_name, configured_name)
     if template_name is not None:
         tokenizer.chat_template = get_chat_template(template_name)
         return template_name
-
-    if getattr(tokenizer, "chat_template", None):
-        return None
 
     tokenizer.chat_template = LLAMA3_CHAT_TEMPLATE
     return "llama3"

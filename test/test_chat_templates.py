@@ -37,6 +37,18 @@ class ChatTemplateSelectionTest(unittest.TestCase):
         self.assertIsNone(resolved)
         self.assertEqual(tokenizer.chat_template, "native-template")
 
+    def test_ensure_tokenizer_chat_template_prefers_native_over_configured_fallback(self):
+        tokenizer = _DummyTokenizer(chat_template="native-template")
+
+        resolved = ensure_tokenizer_chat_template(
+            tokenizer,
+            model_name="custom/model",
+            configured_name="qwen3",
+        )
+
+        self.assertIsNone(resolved)
+        self.assertEqual(tokenizer.chat_template, "native-template")
+
     def test_ensure_tokenizer_chat_template_uses_fallback_when_needed(self):
         tokenizer = _DummyTokenizer()
 
