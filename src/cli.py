@@ -337,6 +337,7 @@ def _build_common_dpo_config_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
         "greater_is_better",
         "save_only_model",
         "hub_model_id",
+        "activation_offloading",
     )
     for field_name in optional_fields:
         if field_name in dpo_train_args:

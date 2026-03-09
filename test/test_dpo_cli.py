@@ -376,6 +376,7 @@ class DPOCliTest(unittest.TestCase):
 
     def test_main_e_dpo_builds_epsilon_config_and_hh_triplets(self):
         config = _base_dpo_config()
+        config["dpo_training"]["activation_offloading"] = True
         config["e_dpo"] = {
             "beta": 0.15,
             "epsilon": 0.02,
@@ -395,6 +396,7 @@ class DPOCliTest(unittest.TestCase):
         self.assertEqual(trainer.args.epsilon, 0.02)
         self.assertEqual(trainer.args.max_length, 64)
         self.assertEqual(trainer.args.output_dir, "tmp_dpo")
+        self.assertTrue(trainer.args.activation_offloading)
         self.assertEqual(set(trainer.train_dataset.column_names), {"prompt", "chosen", "rejected"})
         self.assertEqual(set(trainer.eval_dataset.column_names), {"prompt", "chosen", "rejected"})
         self.assertIsInstance(trainer.processing_class, _DummyTokenizer)
