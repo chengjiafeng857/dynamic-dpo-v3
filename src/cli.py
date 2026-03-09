@@ -86,9 +86,6 @@ def _load_policy_ref_and_tokenizer(
                 "flash_attention_2 requires precision fp16 or bf16; "
                 f"got precision={config.get('precision', 'fp32')}."
             )
-    if torch_dtype is not None:
-        model_kwargs["torch_dtype"] = torch_dtype
-
     policy = AutoModelForCausalLM.from_pretrained(policy_name, **model_kwargs)
     ref_model = AutoModelForCausalLM.from_pretrained(ref_name, **model_kwargs)
     ref_model.eval()

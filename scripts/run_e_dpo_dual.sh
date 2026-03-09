@@ -211,7 +211,8 @@ stop_runpod() {
     echo "[runpod] shutdown skipped"
     return
   fi
-
+  echo "Shutting down pod in 10 seconds..."
+  sleep 10
   echo "[runpod] stopping pod with command: ${RUNPOD_STOP_COMMAND}"
   bash -lc "$RUNPOD_STOP_COMMAND"
 }
