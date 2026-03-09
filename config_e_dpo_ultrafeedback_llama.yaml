@@ -50,7 +50,7 @@ dpo_training:
     use_orig_params: true
     cpu_ram_efficient_loading: true
     sync_module_states: true
-    activation_checkpointing: true
+    activation_checkpointing: false
     state_dict_type: SHARDED_STATE_DICT
 
 e_dpo:
