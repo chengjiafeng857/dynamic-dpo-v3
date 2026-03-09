@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LLAMA_CONFIG="${LLAMA_CONFIG:-config_e_dpo_ultrafeedback.yaml}"
+LLAMA_CONFIG="${LLAMA_CONFIG:-config_e_dpo_ultrafeedback_llama.yaml}"
 QWEN_CONFIG="${QWEN_CONFIG:-config_e_dpo_ultrafeedback_qwen.yaml}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-4}"
 NNODES="${NNODES:-1}"

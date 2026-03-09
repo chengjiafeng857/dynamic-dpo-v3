@@ -18,6 +18,26 @@ from .data.ultrafeedback_dataset import build_ultrafeedback_preference_dataset
 from .trainers.sft_trainer import run_sft_training
 
 
+def _summarize_sample(sample: Any, *, max_chars: int = 2048) -> str:
+    text = repr(sample)
+    if len(text) > max_chars:
+        return f"{text[:max_chars]}..."
+    return text
+
+
+def _print_dpo_dataset_preview(dataset: Dataset, *, label: str) -> None:
+    size = len(dataset)
+    if size == 0:
+        print(f"[DPO] {label}_sample=None (empty dataset)")
+        return
+
+    sample = dataset[0]
+    if isinstance(sample, dict):
+        print(f"[DPO] {label}_sample_keys={list(sample.keys())}")
+    for idx in range(min(2, size)):
+        print(f"[DPO] {label}_sample_{idx}={_summarize_sample(dataset[idx])}")
+
+
 def _is_main_process() -> bool:
     import torch.distributed as dist
 
@@ -418,6 +438,8 @@ def run_beta_dpo_training(config: Dict[str, Any]) -> None:
 
     policy, ref_model, tokenizer, policy_name = _load_policy_ref_and_tokenizer(config)
     train_ds, eval_ds = _build_dpo_datasets(config, tokenizer, policy_name)
+    _print_dpo_dataset_preview(train_ds, label="train")
+    _print_dpo_dataset_preview(eval_ds, label="eval")
 
     beta_cfg = config.get("beta_dpo", {})
     training_args = BetaDPOConfig(
@@ -449,6 +471,8 @@ def run_margin_dpo_training(config: Dict[str, Any]) -> None:
 
     policy, ref_model, tokenizer, policy_name = _load_policy_ref_and_tokenizer(config)
     train_ds, eval_ds = _build_dpo_datasets(config, tokenizer, policy_name)
+    _print_dpo_dataset_preview(train_ds, label="train")
+    _print_dpo_dataset_preview(eval_ds, label="eval")
 
     training_args = DPOConfig(**_build_common_dpo_config_kwargs(config))
     margin_cfg = config.get("margin_log", {})
@@ -473,6 +497,8 @@ def run_e_dpo_training(config: Dict[str, Any]) -> None:
 
     policy, ref_model, tokenizer, policy_name = _load_policy_ref_and_tokenizer(config)
     train_ds, eval_ds = _build_dpo_datasets(config, tokenizer, policy_name)
+    _print_dpo_dataset_preview(train_ds, label="train")
+    _print_dpo_dataset_preview(eval_ds, label="eval")
 
     e_dpo_cfg = config.get("e_dpo", {})
     training_args = EpsilonDPOConfig(

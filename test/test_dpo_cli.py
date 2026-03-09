@@ -282,13 +282,15 @@ class DPOCliTest(unittest.TestCase):
             "beta_min": 0.05,
             "sync_global_mask": False,
         }
+        stdout = io.StringIO()
 
-        trainer, ref_model = self._run_main(
-            main_beta_dpo,
-            config,
-            "src.trainers.beta_dpo_trainer.BetaDPOTrainer",
-            ["train-beta-dpo", "--config", "config_beta_dpo.yaml"],
-        )
+        with redirect_stdout(stdout):
+            trainer, ref_model = self._run_main(
+                main_beta_dpo,
+                config,
+                "src.trainers.beta_dpo_trainer.BetaDPOTrainer",
+                ["train-beta-dpo", "--config", "config_beta_dpo.yaml"],
+            )
 
         self.assertTrue(trainer.train_called)
         self.assertEqual(trainer.saved_path, "tmp_dpo/final")
@@ -304,6 +306,11 @@ class DPOCliTest(unittest.TestCase):
         self.assertEqual(set(trainer.eval_dataset.column_names), {"prompt", "chosen", "rejected"})
         self.assertTrue(ref_model.eval_called)
         self.assertFalse(ref_model.parameters()[0].requires_grad_value)
+        self.assertIn("[DPO] train_sample_keys=['prompt', 'chosen', 'rejected']", stdout.getvalue())
+        self.assertIn("[DPO] train_sample_0=", stdout.getvalue())
+        self.assertIn("[DPO] train_sample_1=", stdout.getvalue())
+        self.assertIn("[DPO] eval_sample_0=", stdout.getvalue())
+        self.assertIn("[DPO] eval_sample_1=", stdout.getvalue())
 
     def test_main_beta_dpo_accepts_torchrun_local_rank_argument(self):
         config = _base_dpo_config()
