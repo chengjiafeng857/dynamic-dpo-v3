@@ -1,0 +1,58 @@
+# HH Epsilon DPO example config.
+policy_name: W-61/hh-harmless-base-llama3-8b-sft
+ref_name: W-61/hh-harmless-base-llama3-8b-sft
+precision: bf16
+
+dataset:
+  dataset_name: Anthropic/hh-rlhf
+  data_dir: harmless-base
+  generated_data: false
+  chat_template: true
+  chat_template_name: llama3
+  subset: train[:100%]
+  val_ratio: 0.1
+  seed: 42
+  max_len: 512
+
+dpo_training:
+  epochs: 1
+  batch_size: 4
+  eval_batch_size: 4
+  learning_rate: 5e-7
+  log_steps: 5
+  eval_steps: 100
+  save_steps: 100
+  gradient_accumulation: 4
+  max_grad_norm: 1.0
+  warmup_steps: 60
+  gradient_checkpointing: true
+  wandb_project: e_dpo
+  report: null
+  run_name: hh-e-dpo
+  hub_model_id: jackf857/Qwen-8b-sft-hh-harmless-base-e-dpo
+  save_dir: e_dpo_checkpoints
+  save_strategy: steps
+  load_best_model_at_end: false
+  metric_for_best_model: eval_loss
+  greater_is_better: false
+  save_total_limit: 2
+  save_only_model: false
+  fsdp:
+    enabled: true
+    mode: full_shard auto_wrap
+    version: 1
+    offload_params: false
+    auto_wrap_policy: transformer_based_wrap
+    transformer_layer_cls_to_wrap: null
+    min_num_params: null
+    backward_prefetch: no_prefetch
+    forward_prefetch: false
+    use_orig_params: true
+    cpu_ram_efficient_loading: true
+    sync_module_states: true
+    activation_checkpointing: false
+    state_dict_type: FULL_STATE_DICT
+
+e_dpo:
+  beta: 0.1
+  epsilon: 0.01
