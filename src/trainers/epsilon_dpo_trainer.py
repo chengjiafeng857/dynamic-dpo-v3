@@ -186,28 +186,43 @@ class EpsilonDPOTrainer(DPOTrainer):
         Estimate ε-step direction for each example.
         Returns steps in {-1, 0, +1} with shape [batch_size/2].
         """
-        p_epsilon_logits = ((1.0 + self.epsilon) * logits) - (self.epsilon * ref_logits)
-        p_eps_per_token_logps = selective_log_softmax(p_epsilon_logits, shift_labels)
-        p_eps_logps = self._sum_completion_logps(p_eps_per_token_logps, shift_completion_mask)
-        del p_epsilon_logits, p_eps_per_token_logps
-
-        n_epsilon_logits = ((1.0 - self.epsilon) * logits) + (self.epsilon * ref_logits)
-        n_eps_per_token_logps = selective_log_softmax(n_epsilon_logits, shift_labels)
-        n_eps_logps = self._sum_completion_logps(n_eps_per_token_logps, shift_completion_mask)
-        del n_epsilon_logits, n_eps_per_token_logps
-
         base_chosen, base_rejected = base_logps.chunk(2, dim=0)
-        p_chosen, p_rejected = p_eps_logps.chunk(2, dim=0)
-        n_chosen, n_rejected = n_eps_logps.chunk(2, dim=0)
-
         base_logratios = base_chosen - base_rejected
-        p_logratios = p_chosen - p_rejected
-        n_logratios = n_chosen - n_rejected
+        num_pairs = base_logratios.size(0)
 
-        p_steps = (p_logratios > base_logratios) & (base_logratios > n_logratios)
-        n_steps = (n_logratios > base_logratios) & (base_logratios > p_logratios)
+        steps = torch.zeros(num_pairs, dtype=torch.int64, device=logits.device)
 
-        steps = p_steps.to(torch.int64) - n_steps.to(torch.int64)
+        # Stream one [chosen_i, rejected_i] pair at a time to avoid
+        # materializing full-batch perturbed logits.
+        with torch.no_grad():
+            for i in range(num_pairs):
+                pair_logits = torch.stack((logits[i], logits[i + num_pairs]), dim=0)
+                pair_ref_logits = torch.stack((ref_logits[i], ref_logits[i + num_pairs]), dim=0)
+                pair_labels = torch.stack((shift_labels[i], shift_labels[i + num_pairs]), dim=0)
+                pair_completion_mask = torch.stack(
+                    (shift_completion_mask[i], shift_completion_mask[i + num_pairs]),
+                    dim=0,
+                )
+
+                p_pair_logits = ((1.0 + self.epsilon) * pair_logits) - (self.epsilon * pair_ref_logits)
+                p_pair_per_token_logps = selective_log_softmax(p_pair_logits, pair_labels)
+                p_pair_logps = self._sum_completion_logps(p_pair_per_token_logps, pair_completion_mask)
+                p_logratio = p_pair_logps[0] - p_pair_logps[1]
+                del p_pair_logits, p_pair_per_token_logps, p_pair_logps
+
+                n_pair_logits = ((1.0 - self.epsilon) * pair_logits) + (self.epsilon * pair_ref_logits)
+                n_pair_per_token_logps = selective_log_softmax(n_pair_logits, pair_labels)
+                n_pair_logps = self._sum_completion_logps(n_pair_per_token_logps, pair_completion_mask)
+                n_logratio = n_pair_logps[0] - n_pair_logps[1]
+                del n_pair_logits, n_pair_per_token_logps, n_pair_logps
+
+                base_logratio = base_logratios[i]
+                p_step = (p_logratio > base_logratio) and (base_logratio > n_logratio)
+                n_step = (n_logratio > base_logratio) and (base_logratio > p_logratio)
+                steps[i] = int(p_step) - int(n_step)
+
+                del pair_logits, pair_ref_logits, pair_labels, pair_completion_mask
+
         return steps.to(logits.dtype)
     
     def _compute_loss(self, model, inputs, return_outputs):
