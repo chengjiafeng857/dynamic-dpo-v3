@@ -27,7 +27,7 @@ stop_runpod() {
   fi
 
   echo "[runpod] stopping pod with command: ${RUNPOD_STOP_COMMAND}"
-  /bin/zsh -lc "$RUNPOD_STOP_COMMAND"
+  bash -lc "$RUNPOD_STOP_COMMAND"
 }
 
 on_exit() {
