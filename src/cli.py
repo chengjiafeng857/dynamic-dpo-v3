@@ -66,13 +66,19 @@ def _load_policy_ref_and_tokenizer(
 ) -> Tuple[Any, Any, Any, str]:
     policy_name = config["policy_name"]
     ref_name = config["ref_name"]
+    dpo_train_args = config.get("dpo_training", {})
+    attn_implementation = dpo_train_args.get("attn_implementation")
 
     tokenizer = AutoTokenizer.from_pretrained(policy_name, use_fast=True)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    policy = AutoModelForCausalLM.from_pretrained(policy_name)
-    ref_model = AutoModelForCausalLM.from_pretrained(ref_name)
+    model_kwargs: Dict[str, Any] = {}
+    if attn_implementation:
+        model_kwargs["attn_implementation"] = str(attn_implementation)
+
+    policy = AutoModelForCausalLM.from_pretrained(policy_name, **model_kwargs)
+    ref_model = AutoModelForCausalLM.from_pretrained(ref_name, **model_kwargs)
     ref_model.eval()
     for param in ref_model.parameters():
         param.requires_grad_(False)

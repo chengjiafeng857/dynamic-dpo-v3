@@ -400,6 +400,50 @@ class DPOCliTest(unittest.TestCase):
         self.assertTrue(ref_model.eval_called)
         self.assertFalse(ref_model.parameters()[0].requires_grad_value)
 
+    def test_main_e_dpo_passes_attn_implementation_to_policy_and_ref_models(self):
+        config = _base_dpo_config()
+        config["dpo_training"]["attn_implementation"] = "flash_attention_2"
+        config["e_dpo"] = {
+            "beta": 0.15,
+            "epsilon": 0.02,
+        }
+        model_calls = []
+        raw_dataset = _raw_hh_dataset()
+
+        def _fake_load_dataset(path, data_dir=None, split=None):
+            self.assertEqual(path, config["dataset"]["dataset_name"])
+            self.assertEqual(data_dir, config["dataset"]["data_dir"])
+            self.assertEqual(split, config["dataset"]["subset"])
+            return raw_dataset
+
+        def _fake_model_loader(model_name, **kwargs):
+            model_calls.append((model_name, kwargs))
+            return _DummyModel()
+
+        with (
+            patch("src.cli.load_yaml", return_value=config),
+            patch("src.cli.load_dataset", side_effect=_fake_load_dataset),
+            patch(
+                "src.cli.AutoTokenizer.from_pretrained",
+                side_effect=lambda *args, **kwargs: _DummyTokenizer(),
+            ),
+            patch(
+                "src.cli.AutoModelForCausalLM.from_pretrained",
+                side_effect=_fake_model_loader,
+            ),
+            patch("src.trainers.epsilon_dpo_trainer.EpsilonDPOTrainer", _DummyTrainer),
+            patch.object(sys, "argv", ["train-e-dpo", "--config", "config_e_dpo.yaml"]),
+        ):
+            main_e_dpo()
+
+        self.assertEqual(
+            model_calls,
+            [
+                ("dummy/policy", {"attn_implementation": "flash_attention_2"}),
+                ("dummy/ref", {"attn_implementation": "flash_attention_2"}),
+            ],
+        )
+
     def test_main_e_dpo_uses_trainer_push_to_hub_when_hub_model_id_is_set(self):
         config = _base_dpo_config()
         config["dpo_training"]["hub_model_id"] = "user/e-dpo-test"
