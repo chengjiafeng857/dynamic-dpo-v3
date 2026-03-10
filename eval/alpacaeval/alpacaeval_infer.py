@@ -156,9 +156,11 @@ def _generate_with_transformers(
         generate_kwargs["eos_token_id"] = eos_token_id if len(eos_token_id) > 1 else eos_token_id[0]
 
     outputs: list[str] = []
+    add_special_tokens = use_custom_chat_template(config)
     for prompt_batch in _iter_batches(prompts, batch_size):
         tokenized = tokenizer(
             list(prompt_batch),
+            add_special_tokens=add_special_tokens,
             padding=True,
             return_tensors="pt",
         )
@@ -194,7 +196,10 @@ def _render_prompts(
         use_fast=True,
         trust_remote_code=bool(transformers_cfg.get("trust_remote_code", False)),
     )
-    if getattr(tokenizer, "chat_template", None) is None:
+    if (
+        getattr(tokenizer, "chat_template", None) is None
+        and getattr(tokenizer, "default_chat_template", None) is None
+    ):
         raise ValueError(
             "Model tokenizer does not define a default chat template. "
             "Set alpacaeval.use_custom_chat_template=true and provide alpacaeval.prompt_template."

@@ -89,13 +89,6 @@ def render_prompt(template_text: str, instruction: str) -> str:
     return template_text.format(instruction=instruction)
 
 
-def get_prompt_template_reference(config: Dict[str, Any]) -> str:
-    if use_custom_chat_template(config):
-        template_path, _ = load_prompt_template(config)
-        return str(template_path)
-    return "model_default"
-
-
 def sanitize_name(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip())
     cleaned = cleaned.strip("-")

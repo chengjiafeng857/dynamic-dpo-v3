@@ -6,7 +6,7 @@ alpacaeval:
   model_name_or_path: princeton-nlp/Llama-3-Instruct-8B-SimPO
   backend: vllm
   simpo_compat: true
-  use_custom_chat_template: true
+  use_custom_chat_template: false
   prompt_template: templates/llama3.txt
   output_dir: ../../outputs/alpacaeval/llama-3-instruct-8b-simpo
   dataset_name: tatsu-lab/alpaca_eval
