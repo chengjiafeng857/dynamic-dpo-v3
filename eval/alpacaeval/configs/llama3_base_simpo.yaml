@@ -1,6 +1,7 @@
 model_name: princeton-nlp/Llama-3-Base-8B-SFT-SimPO
 pretty_name: Llama-3-Base-8B-SFT-SimPO
 prompt_template: ../templates/llama3.txt
+use_custom_chat_template: true
 bos_mode: single
 generation:
   batch_size: 900
@@ -10,4 +11,3 @@ generation:
 stop_token_ids:
   - 128001
   - 128009
-

@@ -1,6 +1,7 @@
 model_name: meta-llama/Meta-Llama-3-8B
 pretty_name: repo-llama3
 prompt_template: ../templates/llama3.txt
+use_custom_chat_template: true
 bos_mode: single
 generation:
   batch_size: 1
@@ -10,4 +11,3 @@ generation:
 stop_token_ids:
   - 128001
   - 128009
-

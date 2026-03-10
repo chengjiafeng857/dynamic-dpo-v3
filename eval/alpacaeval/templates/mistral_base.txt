@@ -1,6 +1,10 @@
-<s> <|system|>
-</s>
-<|user|>
-{instruction}</s>
-<|assistant|>
-
+{% for message in messages %}
+{% if message['role'] == 'user' %}
+{{ '<s> <|system|>\n</s>\n<|user|>\n' + message['content'] + '</s>\n' }}
+{% elif message['role'] == 'assistant' %}
+{{ '<|assistant|>\n' + message['content'] + '</s>\n' }}
+{% endif %}
+{% if loop.last and add_generation_prompt %}
+{{ '<|assistant|>\n' }}
+{% endif %}
+{% endfor %}

@@ -1,6 +1,7 @@
 model_name: Qwen/Qwen3-8B
 pretty_name: repo-qwen3
 prompt_template: ../templates/qwen3.txt
+use_custom_chat_template: true
 bos_mode: none
 generation:
   batch_size: 1
@@ -8,4 +9,3 @@ generation:
   temperature: 0.7
   top_p: 0.9
 stop_token_ids: []
-

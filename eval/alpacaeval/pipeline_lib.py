@@ -28,6 +28,7 @@ PRESET_REQUIRED_KEYS = (
     "model_name",
     "pretty_name",
     "prompt_template",
+    "use_custom_chat_template",
     "bos_mode",
     "generation",
     "stop_token_ids",
@@ -177,17 +178,24 @@ def _normalize_instruction(row: dict[str, Any]) -> str:
 def render_prompt(
     *,
     template_text: str,
+    use_custom_chat_template: bool,
     row: dict[str, Any],
     bos_mode: str,
     tokenizer: Any,
 ) -> str:
     normalized_instruction = _normalize_instruction(row)
-    context = {
-        "instruction": normalized_instruction,
-        "raw_instruction": str(row.get("instruction", "") or ""),
-        "input": str(row.get("input", "") or ""),
-    }
-    prompt = str(template_text).format(**context)
+    messages = [{"role": "user", "content": normalized_instruction}]
+    if use_custom_chat_template:
+        tokenizer.chat_template = str(template_text)
+    elif not getattr(tokenizer, "chat_template", None):
+        raise ValueError(
+            "Preset requested the model's original chat template, but the tokenizer has no chat_template."
+        )
+    prompt = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+    )
     bos_token = getattr(tokenizer, "bos_token", None) or ""
 
     if bos_mode == "single":
@@ -301,6 +309,7 @@ def build_prompt_rows(
     for index, row in enumerate(dataset_rows):
         prompt = render_prompt(
             template_text=str(preset["prompt_template_text"]),
+            use_custom_chat_template=bool(preset["use_custom_chat_template"]),
             row=row,
             bos_mode=str(preset["bos_mode"]),
             tokenizer=tokenizer,
@@ -439,6 +448,7 @@ def prepare_run(
             "pretty_name": preset["pretty_name"],
             "prompt_template": preset["prompt_template"],
             "prompt_template_path": preset["prompt_template_path"],
+            "use_custom_chat_template": bool(preset["use_custom_chat_template"]),
             "bos_mode": preset["bos_mode"],
             "generation": preset["generation"],
             "stop_token_ids": preset["stop_token_ids"],
@@ -581,4 +591,3 @@ def get_installed_alpaca_eval_version() -> str | None:
         return importlib.metadata.version("alpaca-eval")
     except importlib.metadata.PackageNotFoundError:
         return None
-

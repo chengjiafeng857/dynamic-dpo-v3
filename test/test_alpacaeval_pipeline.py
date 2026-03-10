@@ -17,9 +17,18 @@ import run_pipeline
 
 class _TokenizerWithoutChatTemplate:
     bos_token = "<|begin_of_text|>"
+    chat_template = None
 
-    def apply_chat_template(self, *args, **kwargs):
-        raise AssertionError("render_prompt should not call tokenizer.apply_chat_template")
+    def apply_chat_template(self, messages, tokenize, add_generation_prompt):
+        self.last_messages = messages
+        self.last_tokenize = tokenize
+        self.last_add_generation_prompt = add_generation_prompt
+        content = messages[0]["content"]
+        if "begin_of_text" in (self.chat_template or ""):
+            prefix = "<|begin_of_text|>"
+        else:
+            prefix = ""
+        return f"{prefix}<|start_header_id|>user<|end_header_id|>\n\n{content}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
 
 
 class AlpacaEvalPipelineTest(unittest.TestCase):
@@ -34,28 +43,49 @@ class AlpacaEvalPipelineTest(unittest.TestCase):
             self.assertIn("model_name", preset)
             self.assertIn("pretty_name", preset)
             self.assertIn("prompt_template_text", preset)
+            self.assertIn("use_custom_chat_template", preset)
             self.assertIn("generation", preset)
 
     def test_render_prompt_single_bos_keeps_exactly_one_bos(self):
         preset = pipeline_lib.load_preset("llama3_base_simpo")
+        tokenizer = _TokenizerWithoutChatTemplate()
         prompt = pipeline_lib.render_prompt(
             template_text=preset["prompt_template_text"],
+            use_custom_chat_template=True,
             row={"instruction": "Say hello"},
             bos_mode="single",
-            tokenizer=_TokenizerWithoutChatTemplate(),
+            tokenizer=tokenizer,
         )
         self.assertEqual(prompt.count("<|begin_of_text|>"), 1)
         self.assertIn("Say hello", prompt)
+        self.assertEqual(tokenizer.last_messages, [{"role": "user", "content": "Say hello"}])
+        self.assertFalse(tokenizer.last_tokenize)
+        self.assertTrue(tokenizer.last_add_generation_prompt)
 
     def test_render_prompt_none_strips_bos(self):
         template_path = PIPELINE_DIR / "templates" / "llama3-nobos.txt"
+        tokenizer = _TokenizerWithoutChatTemplate()
         prompt = pipeline_lib.render_prompt(
             template_text=template_path.read_text(encoding="utf-8"),
+            use_custom_chat_template=True,
             row={"instruction": "Say hello"},
             bos_mode="none",
-            tokenizer=_TokenizerWithoutChatTemplate(),
+            tokenizer=tokenizer,
         )
         self.assertNotIn("<|begin_of_text|>", prompt)
+        self.assertIn("Say hello", prompt)
+
+    def test_render_prompt_can_use_model_original_template(self):
+        tokenizer = _TokenizerWithoutChatTemplate()
+        tokenizer.chat_template = "native-template"
+        prompt = pipeline_lib.render_prompt(
+            template_text="custom-template",
+            use_custom_chat_template=False,
+            row={"instruction": "Say hello"},
+            bos_mode="tokenizer",
+            tokenizer=tokenizer,
+        )
+        self.assertEqual(tokenizer.chat_template, "native-template")
         self.assertIn("Say hello", prompt)
 
     def test_serialize_model_outputs_sanitizes_generator(self):
