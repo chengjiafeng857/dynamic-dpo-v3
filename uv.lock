@@ -84,7 +84,7 @@ wheels = [
 
 [[package]]
 name = "alpaca-eval"
-version = "0.6.6"
+version = "0.6.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "datasets" },
@@ -98,9 +98,9 @@ dependencies = [
     { name = "scipy" },
     { name = "tiktoken" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/10/62/3013b6f0357260c06d3965c20060714abcb27752240ff9f9b630fe2a48dd/alpaca_eval-0.6.6.tar.gz", hash = "sha256:94db28994674800f59de9983a275bab6c543c8f0478a039b421dd9456a9e43de", size = 391564, upload-time = "2024-12-27T21:47:51.575Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8b/1f/a5b724bc11abfc5bb1e43a067527d9daec1051fe1f6f11d0db2c30325b7b/alpaca_eval-0.6.2.tar.gz", hash = "sha256:dc702d423cc0040980001da6e1d90fabd6ca8f560b4b01ce50213834aa82510e", size = 368536, upload-time = "2024-04-19T06:28:14.067Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6c/c2/aa7b54eaca10603efdcac7092c43889e7316db6e5781d300fde57a5ec95e/alpaca_eval-0.6.6-py3-none-any.whl", hash = "sha256:8f4f218b8a1d7ef379491222e90f38446ca327930b51416d55306663cf85f28c", size = 361743, upload-time = "2024-12-27T21:47:50.15Z" },
+    { url = "https://files.pythonhosted.org/packages/ea/4d/9b44ccd56c4f7579c9e4b6886096daa1ad6d75019e4a2b03f0b94476a623/alpaca_eval-0.6.2-py3-none-any.whl", hash = "sha256:0d4778571b838001ae9f21982778b7980c5092aa35a5f5bf1fb0a616eb8041cc", size = 295695, upload-time = "2024-04-19T06:28:11.503Z" },
 ]
 
 [[package]]
@@ -330,7 +330,7 @@ ultra = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", specifier = ">=1.12.0" },
-    { name = "alpaca-eval", specifier = ">=0.6.0" },
+    { name = "alpaca-eval", specifier = "==0.6.2" },
     { name = "datasets", specifier = ">=4.4.2" },
     { name = "flash-attn", marker = "extra == 'ultra'", specifier = ">=2.8.3" },
     { name = "hf-transfer", specifier = ">=0.1.9" },
