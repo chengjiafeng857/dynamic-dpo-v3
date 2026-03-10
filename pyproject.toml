@@ -37,10 +37,12 @@ train-sft = "src.cli:main_sft"
 train-beta-dpo = "src.cli:main_beta_dpo"
 train-margin-dpo = "src.cli:main_margin_dpo"
 train-e-dpo = "src.cli:main_e_dpo"
+alpacaeval-infer = "src.cli:main_alpacaeval_infer"
+alpacaeval-eval = "src.cli:main_alpacaeval_eval"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*"]
+include = ["src*", "eval*"]
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

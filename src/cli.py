@@ -567,3 +567,43 @@ def main_e_dpo():
     args = parser.parse_args()
     config = load_yaml(args.config)
     run_e_dpo_training(config)
+
+
+def main_alpacaeval_infer():
+    """Main entry point for AlpacaEval inference."""
+    parser = argparse.ArgumentParser(description="Run AlpacaEval inference")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="eval/alpacaeval/config_alpacaeval.yaml",
+    )
+    args = parser.parse_args()
+
+    from eval.alpacaeval.alpacaeval_infer import run_alpacaeval_inference
+
+    config = load_yaml(args.config)
+    config["_config_path"] = args.config
+    run_alpacaeval_inference(config)
+
+
+def main_alpacaeval_eval():
+    """Main entry point for AlpacaEval evaluation."""
+    parser = argparse.ArgumentParser(description="Run AlpacaEval evaluation")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="eval/alpacaeval/config_alpacaeval.yaml",
+    )
+    parser.add_argument("--model-outputs", type=str, default=None)
+    parser.add_argument("--use-model-configs", action="store_true")
+    args = parser.parse_args()
+
+    from eval.alpacaeval.alpacaeval_eval import run_alpacaeval_evaluation
+
+    config = load_yaml(args.config)
+    config["_config_path"] = args.config
+    run_alpacaeval_evaluation(
+        config,
+        model_outputs_path=args.model_outputs,
+        use_model_configs=bool(args.use_model_configs),
+    )
