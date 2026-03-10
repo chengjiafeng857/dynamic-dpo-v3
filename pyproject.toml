@@ -31,6 +31,11 @@ ultra = [
     "flash-attn>=2.8.3",
 ]
 
+[dependency-groups]
+eval = [
+    "alpaca-eval==0.6.2",
+]
+
 [project.scripts]
 train-dpo = "src.cli:main_dpo"
 train-sft = "src.cli:main_sft"
