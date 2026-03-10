@@ -1,0 +1,6 @@
+<s> <|system|>
+</s>
+<|user|>
+{instruction}</s>
+<|assistant|>
+

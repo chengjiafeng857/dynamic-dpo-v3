@@ -1,0 +1,13 @@
+model_name: princeton-nlp/Llama-3-Base-8B-SFT-SimPO
+pretty_name: Llama-3-Base-8B-SFT-SimPO
+prompt_template: ../templates/llama3.txt
+bos_mode: single
+generation:
+  batch_size: 900
+  max_new_tokens: 4096
+  temperature: 0.9
+  top_p: 1.0
+stop_token_ids:
+  - 128001
+  - 128009
+

@@ -1,0 +1,66 @@
+# Dataset Configuration
+dataset:
+  name: "trl-lib/tldr"
+  split: "test"
+  max_samples: 800
+  seed: 42
+  # Optional overrides if dataset uses non-standard field names.
+  post_field: null
+  summary_field: null
+  id_field: null
+  meta_fields:
+    - subreddit
+    - title
+
+# Model Paths
+models:
+  sft: "W-61/hh-llama32-1b-sft"
+  standard_dpo: "jackf857/llama32-1b-dpo-hh-rollout"
+  beta_dpo: "W-61/llama32-1b-beta-dpo-hh-rollout"
+  dynamic_beta_dpo: "jackf857/llama32-1b-dynamic-dpo-hh-rollout"
+# Generation Parameters
+generation:
+  max_new_tokens: 128
+  temperature: 1.0
+  top_p: 0.9
+  batch_size: 8
+  device: "cuda"
+  prompt_template: "{post}\n\nTL;DR:"
+  do_sample: true
+  use_fast_tokenizer: true
+
+# GPT-4 Oracle Configuration
+gpt4_oracle:
+  model: "gpt-4o-2024-08-06"
+  temperature: ???
+  max_tokens: 500
+  randomize_order: true
+  batch_size: 10
+  seed: 42
+  max_retries: 5
+  initial_backoff: 1.0
+  max_backoff: 60.0
+  prompt_template: |
+    You are an expert evaluator for text summarization quality. Your task is to compare two summaries of the same Reddit post and determine which one does a better job of summarizing the most important points.
+
+    **Original Post:**
+    {post}
+
+    **Summary A:**
+    {summary_a}
+
+    **Summary B:**
+    {summary_b}
+
+    **Instructions:**
+    1. First, explain which summary does a better job of capturing the most important points of the post and why.
+    2. Then, state your preference as either "Summary A" or "Summary B".
+
+    **Your Evaluation:**
+
+# Output Paths
+output:
+  data_dir: "test/gpt_judge_TLDR/data"
+  summaries_dir: "test/gpt_judge_TLDR/outputs"
+  results_dir: "test/gpt_judge_TLDR/results"
+  visualizations_dir: "test/gpt_judge_TLDR/visualizations"

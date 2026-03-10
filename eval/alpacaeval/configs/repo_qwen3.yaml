@@ -1,0 +1,11 @@
+model_name: Qwen/Qwen3-8B
+pretty_name: repo-qwen3
+prompt_template: ../templates/qwen3.txt
+bos_mode: none
+generation:
+  batch_size: 1
+  max_new_tokens: 1024
+  temperature: 0.7
+  top_p: 0.9
+stop_token_ids: []
+
