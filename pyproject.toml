@@ -31,11 +31,11 @@ ultra = [
 ]
 
 [dependency-groups]
-eval = [
+alpaca-eval-0.6.2 = [
     "alpaca-eval==0.6.2",
 ]
 eval-vllm = [
-    { include-group = "eval" },
+    { include-group = "alpaca-eval-0.6.2" },
     "vllm",
 ]
 

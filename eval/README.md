@@ -68,7 +68,7 @@ There is also a model-config path:
 
 - Python environment managed with `uv`.
 - Project dependencies installed.
-- For the eval-only stack, install `uv sync --group eval`.
+- For the eval-only stack, install `uv sync --group alpaca-eval-0.6.2`.
 - For AlpacaEval with `vllm`, install `uv sync --group eval-vllm`.
 - Access to the target model in `policy_name` or `alpacaeval.model_name_or_path`.
 - Access to the AlpacaEval dataset from Hugging Face.
