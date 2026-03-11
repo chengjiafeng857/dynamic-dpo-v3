@@ -20,6 +20,8 @@ from eval.alpacaeval.alpacaeval_eval import (
 )
 from eval.alpacaeval.alpacaeval_infer import (
     _generate_with_transformers,
+    _load_tokenizer,
+    _prepare_tokenizer_path,
     _render_prompts,
     run_alpacaeval_inference,
 )
@@ -80,6 +82,133 @@ def _real_tokenizer(model_name_or_path: str):
 
 
 class AlpacaEvalPipelineTest(unittest.TestCase):
+    def test_prepare_tokenizer_path_sanitizes_extra_special_tokens(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source_dir = Path(tmp_dir) / "source"
+            source_dir.mkdir()
+            (source_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
+            (source_dir / "tokenizer_config.json").write_text(
+                json.dumps(
+                    {
+                        "tokenizer_class": "Qwen2Tokenizer",
+                        "extra_special_tokens": ["<|im_start|>", "<|im_end|>"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("eval.alpacaeval.alpacaeval_infer.Path.home", return_value=Path(tmp_dir)):
+                sanitized_path = Path(_prepare_tokenizer_path(str(source_dir)))
+
+            payload = json.loads((sanitized_path / "tokenizer_config.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["extra_special_tokens"], {})
+            self.assertTrue((sanitized_path / "tokenizer.json").exists())
+
+    def test_prepare_tokenizer_path_rewrites_tokenizers_backend_class(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source_dir = Path(tmp_dir) / "source"
+            source_dir.mkdir()
+            (source_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
+            (source_dir / "tokenizer_config.json").write_text(
+                json.dumps(
+                    {
+                        "tokenizer_class": "TokenizersBackend",
+                        "bos_token": "<|begin_of_text|>",
+                        "eos_token": "<|end_of_text|>",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("eval.alpacaeval.alpacaeval_infer.Path.home", return_value=Path(tmp_dir)):
+                sanitized_path = Path(_prepare_tokenizer_path(str(source_dir)))
+
+            payload = json.loads((sanitized_path / "tokenizer_config.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["tokenizer_class"], "PreTrainedTokenizerFast")
+
+    def test_load_tokenizer_retries_when_extra_special_tokens_is_invalid_list(self):
+        tokenizer = object()
+        with patch(
+            "eval.alpacaeval.alpacaeval_infer.AutoTokenizer.from_pretrained",
+            side_effect=[
+                AttributeError("'list' object has no attribute 'keys'"),
+                tokenizer,
+            ],
+        ) as mock_from_pretrained:
+            resolved = _load_tokenizer("W-61/ultrafeedback-qwen3-8b-margin-dpo", trust_remote_code=False)
+
+        self.assertIs(resolved, tokenizer)
+        self.assertEqual(mock_from_pretrained.call_count, 2)
+        self.assertEqual(
+            mock_from_pretrained.call_args_list[1].kwargs["extra_special_tokens"],
+            {},
+        )
+
+    def test_load_tokenizer_retries_from_sanitized_path_for_tokenizers_backend(self):
+        tokenizer = object()
+        with (
+            patch(
+                "eval.alpacaeval.alpacaeval_infer.AutoTokenizer.from_pretrained",
+                side_effect=[
+                    ValueError("Tokenizer class TokenizersBackend does not exist or is not currently imported."),
+                    tokenizer,
+                ],
+            ) as mock_from_pretrained,
+            patch(
+                "eval.alpacaeval.alpacaeval_infer._prepare_tokenizer_path",
+                return_value="/tmp/sanitized-tokenizer",
+            ) as mock_prepare,
+        ):
+            resolved = _load_tokenizer("W-61/ultrafeedback-llama3-8b-margin-dpo", trust_remote_code=False)
+
+        self.assertIs(resolved, tokenizer)
+        mock_prepare.assert_called_once_with("W-61/ultrafeedback-llama3-8b-margin-dpo")
+        self.assertEqual(mock_from_pretrained.call_args_list[1].args[0], "/tmp/sanitized-tokenizer")
+
+    def test_inference_falls_back_to_json_when_dataset_script_is_unsupported(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = _base_config(tmp_dir)
+            fallback_path = Path(tmp_dir) / "alpaca_eval.json"
+            fallback_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "instruction": "Say hi",
+                            "dataset": "helpful_base",
+                            "datasplit": "eval",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch(
+                    "eval.alpacaeval.alpacaeval_infer.load_dataset",
+                    side_effect=RuntimeError(
+                        "Dataset scripts are no longer supported, but found alpaca_eval.py"
+                    ),
+                ),
+                patch(
+                    "eval.alpacaeval.alpacaeval_infer.hf_hub_download",
+                    return_value=str(fallback_path),
+                ) as mock_download,
+                patch(
+                    "eval.alpacaeval.alpacaeval_infer._generate_with_transformers",
+                    return_value=["Hello there."],
+                ),
+            ):
+                model_outputs_path = run_alpacaeval_inference(config)
+
+            payload = json.loads(model_outputs_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload[0]["instruction"], "Say hi")
+            self.assertEqual(payload[0]["output"], "Hello there.")
+            mock_download.assert_called_once_with(
+                repo_id="tatsu-lab/alpaca_eval",
+                repo_type="dataset",
+                filename="alpaca_eval.json",
+            )
+
     def test_inference_writes_outputs_and_metadata(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = _base_config(tmp_dir)
