@@ -14,11 +14,17 @@ from eval.benchmark_common import (
     get_model_name_or_path,
     get_output_dir,
     get_pretty_name,
+    resolve_existing_or_download_default_path,
     resolve_existing_path,
 )
 
 
 PACKAGE_DIR = Path(_PACKAGE_FILE).resolve().parent
+DEFAULT_MTBENCH_QUESTION_FILE = "questions.jsonl"
+DEFAULT_MTBENCH_QUESTION_URL = (
+    "https://huggingface.co/spaces/lmsys/mt-bench/resolve/main/"
+    "data/mt_bench/question.jsonl"
+)
 
 
 def _resolve_model_answer_path(
@@ -49,10 +55,12 @@ def run_mtbench_evaluation(
     results_dir.mkdir(parents=True, exist_ok=True)
 
     resolved_answer_path = _resolve_model_answer_path(config, model_answer_path)
-    question_file = resolve_existing_path(
+    question_file = resolve_existing_or_download_default_path(
         config,
-        block_cfg.get("question_file", "questions.jsonl"),
+        block_cfg.get("question_file", DEFAULT_MTBENCH_QUESTION_FILE),
         package_dir=PACKAGE_DIR,
+        default_filename=DEFAULT_MTBENCH_QUESTION_FILE,
+        download_url=DEFAULT_MTBENCH_QUESTION_URL,
     )
     reference_answer_file = resolve_existing_path(
         config,

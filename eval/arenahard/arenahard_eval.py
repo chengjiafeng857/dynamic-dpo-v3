@@ -14,11 +14,17 @@ from eval.benchmark_common import (
     get_model_name_or_path,
     get_output_dir,
     get_pretty_name,
+    resolve_existing_or_download_default_path,
     resolve_existing_path,
 )
 
 
 PACKAGE_DIR = Path(_PACKAGE_FILE).resolve().parent
+DEFAULT_ARENAHARD_QUESTION_FILE = "questions.jsonl"
+DEFAULT_ARENAHARD_QUESTION_URL = (
+    "https://huggingface.co/datasets/lmarena-ai/arena-hard-auto/resolve/main/"
+    "data/arena-hard-v0.1/question.jsonl"
+)
 
 
 def _resolve_model_answer_path(
@@ -59,10 +65,12 @@ def run_arenahard_evaluation(
         block_cfg.get("api_config", "api_config.yaml"),
         package_dir=PACKAGE_DIR,
     )
-    question_file = resolve_existing_path(
+    question_file = resolve_existing_or_download_default_path(
         config,
-        block_cfg.get("question_file", "questions.jsonl"),
+        block_cfg.get("question_file", DEFAULT_ARENAHARD_QUESTION_FILE),
         package_dir=PACKAGE_DIR,
+        default_filename=DEFAULT_ARENAHARD_QUESTION_FILE,
+        download_url=DEFAULT_ARENAHARD_QUESTION_URL,
     )
     judgment_file = results_dir / "arena_hard_judgments.jsonl"
 

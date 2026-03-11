@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import urllib.request
 from importlib import metadata
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
@@ -56,6 +57,32 @@ def resolve_existing_path(
     if package_relative.exists():
         return package_relative
     return resolved
+
+
+def resolve_existing_or_download_default_path(
+    config: Dict[str, Any],
+    path_value: Any,
+    *,
+    package_dir: Path,
+    default_filename: str,
+    download_url: str,
+) -> Path:
+    resolved = resolve_existing_path(
+        config,
+        path_value,
+        package_dir=package_dir,
+    )
+    if resolved.exists():
+        return resolved
+
+    if str(path_value) != default_filename:
+        return resolved
+
+    package_target = (package_dir / default_filename).resolve()
+    package_target.parent.mkdir(parents=True, exist_ok=True)
+    with urllib.request.urlopen(download_url, timeout=60) as response:
+        package_target.write_bytes(response.read())
+    return package_target
 
 
 def get_output_dir(config: Dict[str, Any], block_name: str) -> Path:

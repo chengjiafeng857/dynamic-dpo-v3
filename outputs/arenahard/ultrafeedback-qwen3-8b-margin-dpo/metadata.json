@@ -1,0 +1,22 @@
+{
+  "model_name_or_path": "W-61/ultrafeedback-qwen3-8b-margin-dpo",
+  "pretty_name": "ultrafeedback-qwen3-8b-margin-dpo",
+  "backend": "vllm",
+  "prompt_template": "model_default",
+  "question_file": "/root/dynamic-dpo-v3/eval/arenahard/questions.jsonl",
+  "generation": {
+    "batch_size": 128,
+    "do_sample": false,
+    "max_new_tokens": 4096,
+    "stop_token_ids": [
+      151645
+    ],
+    "temperature": 0.0,
+    "top_p": 1.0
+  },
+  "package_versions": {
+    "torch": "2.10.0",
+    "transformers": "4.57.3",
+    "vllm": "0.17.0"
+  }
+}

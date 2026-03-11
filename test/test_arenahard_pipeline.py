@@ -1,5 +1,6 @@
 """Unit tests for Arena-Hard inference and evaluation helpers."""
 
+import io
 import json
 import sys
 import tempfile
@@ -9,7 +10,7 @@ from unittest.mock import patch
 
 from src.cli import main_arenahard_eval, main_arenahard_infer
 from eval.arenahard.arenahard_eval import run_arenahard_evaluation
-from eval.arenahard.arenahard_infer import run_arenahard_inference
+from eval.arenahard.arenahard_infer import _load_arenahard_questions, run_arenahard_inference
 
 
 def _base_config(output_dir: str, question_file: str) -> dict:
@@ -68,6 +69,24 @@ class _DummyTokenizer:
 
 
 class ArenaHardPipelineTest(unittest.TestCase):
+    def test_load_questions_downloads_default_question_file_when_missing(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = _base_config(tmp_dir, "questions.jsonl")
+            question_payload = (
+                '{"uid":"q1","category":"arena-hard-v0.1","prompt":"Explain caching."}\n'
+            )
+
+            with patch("eval.arenahard.arenahard_infer.PACKAGE_DIR", Path(tmp_dir)), patch(
+                "eval.benchmark_common.urllib.request.urlopen",
+                return_value=io.BytesIO(question_payload.encode("utf-8")),
+            ):
+                questions = _load_arenahard_questions(config)
+
+            self.assertEqual(len(questions), 1)
+            self.assertEqual(questions[0]["question_id"], "q1")
+            self.assertEqual(questions[0]["turns"], ["Explain caching."])
+            self.assertTrue((Path(tmp_dir) / "questions.jsonl").exists())
+
     def test_inference_writes_model_answer_and_metadata(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             question_file = Path(tmp_dir) / "questions.jsonl"

@@ -16,6 +16,7 @@ from eval.benchmark_common import (
     get_package_versions,
     get_pretty_name,
     read_jsonl,
+    resolve_existing_or_download_default_path,
     resolve_existing_path,
     write_json,
     write_jsonl,
@@ -30,6 +31,10 @@ from eval.model_generation import (
 
 PACKAGE_DIR = Path(_PACKAGE_FILE).resolve().parent
 DEFAULT_MTBENCH_QUESTION_FILE = "questions.jsonl"
+DEFAULT_MTBENCH_QUESTION_URL = (
+    "https://huggingface.co/spaces/lmsys/mt-bench/resolve/main/"
+    "data/mt_bench/question.jsonl"
+)
 
 
 def _summarize_text(text: str, *, max_chars: int = 512) -> str:
@@ -63,10 +68,12 @@ def _normalize_question_row(row: Dict[str, Any]) -> Dict[str, Any] | None:
 def _load_mtbench_questions(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     block_cfg = get_block_config(config, "mtbench")
     question_file = block_cfg.get("question_file", DEFAULT_MTBENCH_QUESTION_FILE)
-    question_path = resolve_existing_path(
+    question_path = resolve_existing_or_download_default_path(
         config,
         question_file,
         package_dir=PACKAGE_DIR,
+        default_filename=DEFAULT_MTBENCH_QUESTION_FILE,
+        download_url=DEFAULT_MTBENCH_QUESTION_URL,
     )
     if not question_path.exists():
         raise FileNotFoundError(
