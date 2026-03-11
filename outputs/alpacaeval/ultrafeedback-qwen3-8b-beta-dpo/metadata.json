@@ -1,0 +1,28 @@
+{
+  "model_name_or_path": "W-61/ultrafeedback-qwen3-8b-beta-dpo",
+  "pretty_name": "ultrafeedback-qwen3-8b-beta-dpo",
+  "backend": "vllm",
+  "prompt_template": "model_default",
+  "dataset_name": "tatsu-lab/alpaca_eval",
+  "dataset_config": "alpaca_eval",
+  "dataset_split": "eval",
+  "generation": {
+    "batch_size": 128,
+    "do_sample": true,
+    "max_new_tokens": 4096,
+    "stop_token_ids": [
+      151645
+    ],
+    "temperature": 0.9,
+    "top_p": 1.0
+  },
+  "simpo_compat": false,
+  "use_custom_chat_template": false,
+  "package_versions": {
+    "alpaca-eval": "0.6.2",
+    "datasets": "4.7.0",
+    "torch": "2.10.0",
+    "transformers": "4.57.3",
+    "vllm": "0.17.0"
+  }
+}
