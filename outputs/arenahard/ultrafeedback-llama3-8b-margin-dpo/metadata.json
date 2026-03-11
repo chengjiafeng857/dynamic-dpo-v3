@@ -1,0 +1,23 @@
+{
+  "model_name_or_path": "W-61/ultrafeedback-llama3-8b-margin-dpo",
+  "pretty_name": "ultrafeedback-llama3-8b-margin-dpo",
+  "backend": "vllm",
+  "prompt_template": "/root/dynamic-dpo-v3/eval/arenahard/templates/ultrafeedback-llama3-8b-margin-dpo.jinja",
+  "question_file": "/root/dynamic-dpo-v3/eval/arenahard/questions.jsonl",
+  "generation": {
+    "batch_size": 128,
+    "do_sample": false,
+    "max_new_tokens": 4096,
+    "stop_token_ids": [
+      128001,
+      128009
+    ],
+    "temperature": 0.0,
+    "top_p": 1.0
+  },
+  "package_versions": {
+    "torch": "2.10.0",
+    "transformers": "4.57.3",
+    "vllm": "0.17.0"
+  }
+}
