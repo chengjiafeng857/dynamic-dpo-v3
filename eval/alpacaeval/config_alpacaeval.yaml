@@ -6,7 +6,7 @@ alpacaeval:
   model_name_or_path: W-61/ultrafeedback-llama3-8b-margin-dpo
   backend: vllm
   simpo_compat: false
-  use_custom_chat_template: true
+  use_custom_chat_template: false
   prompt_template: templates/ultrafeedback-llama3-8b-margin-dpo.txt
   output_dir: outputs/alpacaeval/ultrafeedback-llama3-8b-margin-dpo
   dataset_name: tatsu-lab/alpaca_eval
