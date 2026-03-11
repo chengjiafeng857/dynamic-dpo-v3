@@ -68,8 +68,8 @@ There is also a model-config path:
 
 - Python environment managed with `uv`.
 - Project dependencies installed.
-- For the eval-only stack, install `uv sync --group alpaca-eval-0.6.2`.
-- For AlpacaEval with `vllm`, install `uv sync --group eval-vllm`.
+- For pinned `alpaca-eval==0.6.2`, install `uv sync --group alpaca-eval-0.6.2`.
+- For AlpacaEval with `vllm` and unpinned `alpaca-eval`, install `uv sync --group eval-vllm`.
 - Access to the target model in `policy_name` or `alpacaeval.model_name_or_path`.
 - Access to the AlpacaEval dataset from Hugging Face.
 - The default annotator config is OpenAI-backed, so `alpacaeval-eval` typically needs `OPENAI_API_KEY`.

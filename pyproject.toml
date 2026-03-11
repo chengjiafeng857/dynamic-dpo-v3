@@ -35,7 +35,7 @@ alpaca-eval-0.6.2 = [
     "alpaca-eval==0.6.2",
 ]
 eval-vllm = [
-    { include-group = "alpaca-eval-0.6.2" },
+    "alpaca-eval",
     "vllm",
 ]
 
