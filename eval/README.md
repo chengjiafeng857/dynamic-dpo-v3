@@ -68,10 +68,10 @@ There is also a model-config path:
 
 - Python environment managed with `uv`.
 - Project dependencies installed.
-- If you want the eval-specific uv dependency group, install it with `uv sync --group eval`.
+- For the eval-only stack, install `uv sync --group eval`.
+- For AlpacaEval with `vllm`, install `uv sync --group eval-vllm`.
 - Access to the target model in `policy_name` or `alpacaeval.model_name_or_path`.
 - Access to the AlpacaEval dataset from Hugging Face.
-- `uv sync` now installs `vllm` with the base dependency set.
 - The default annotator config is OpenAI-backed, so `alpacaeval-eval` typically needs `OPENAI_API_KEY`.
 
 ## Llama 3 and chat templating
