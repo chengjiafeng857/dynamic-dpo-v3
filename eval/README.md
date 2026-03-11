@@ -71,7 +71,7 @@ There is also a model-config path:
 - If you want the eval-specific uv dependency group, install it with `uv sync --group eval`.
 - Access to the target model in `policy_name` or `alpacaeval.model_name_or_path`.
 - Access to the AlpacaEval dataset from Hugging Face.
-- If you use `alpacaeval.backend: vllm`, install `vllm` separately. It is optional and not part of the base dependency list.
+- `uv sync` now installs `vllm` with the base dependency set.
 - The default annotator config is OpenAI-backed, so `alpacaeval-eval` typically needs `OPENAI_API_KEY`.
 
 ## Llama 3 and chat templating
