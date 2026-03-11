@@ -1,14 +1,16 @@
 # Eval Pipeline
 
-This repo keeps the evaluation pipeline under `eval/alpacaeval/`. The current
-focus is AlpacaEval, with three installed entrypoints:
+This repo keeps benchmark wrappers under `eval/`:
 
-- `alpacaeval-infer`: run local generation over the AlpacaEval prompts and save
-  model outputs.
-- `alpacaeval-eval`: score saved outputs with `alpaca-eval`, or ask
-  `alpaca-eval` to generate from a model config directly.
-- `alpacaeval-batch`: run the same pipeline over a list of models from a batch
-  config.
+- `eval/alpacaeval/`: AlpacaEval local generation plus `alpaca-eval` scoring.
+- `eval/arenahard/`: Arena-Hard local generation plus external judge wrapper.
+- `eval/mtbench/`: MT-Bench local generation plus FastChat judge wrapper.
+
+Installed entrypoints:
+
+- `alpacaeval-infer`, `alpacaeval-eval`, `alpacaeval-batch`
+- `arenahard-infer`, `arenahard-eval`, `arenahard-batch`
+- `mtbench-infer`, `mtbench-eval`, `mtbench-batch`
 
 ## Folder layout
 
@@ -26,6 +28,14 @@ focus is AlpacaEval, with three installed entrypoints:
   `use_custom_chat_template: true`.
 - `eval/alpacaeval/configs/`: checked-in AlpacaEval model-config YAMLs for the
   repo's Qwen3/Llama3 UltraFeedback and UltraChat checkpoints.
+- `eval/arenahard/`: Arena-Hard configs, templates, inference, evaluation, and
+  batch orchestration.
+- `eval/mtbench/`: MT-Bench configs, templates, inference, evaluation, and
+  batch orchestration.
+- `eval/benchmark_common.py`: shared path, config, JSONL, and command helpers
+  for benchmark wrappers.
+- `eval/model_generation.py`: shared tokenizer rendering and local generation
+  helpers for `transformers` and `vllm`.
 
 ## Recommended usage
 
@@ -62,6 +72,22 @@ uv run alpacaeval-batch --config eval/alpacaeval/config_alpacaeval_batch.yaml --
 uv run alpacaeval-batch --config eval/alpacaeval/config_alpacaeval_batch.yaml --use-model-configs
 ```
 
+Arena-Hard:
+
+```bash
+uv run arenahard-infer --config eval/arenahard/config_arenahard.yaml
+uv run arenahard-eval --config eval/arenahard/config_arenahard.yaml
+uv run arenahard-batch --config eval/arenahard/config_arenahard_batch.yaml
+```
+
+MT-Bench:
+
+```bash
+uv run mtbench-infer --config eval/mtbench/config_mtbench.yaml
+uv run mtbench-eval --config eval/mtbench/config_mtbench.yaml
+uv run mtbench-batch --config eval/mtbench/config_mtbench_batch.yaml
+```
+
 ## How the pipeline works
 
 The default single-model workflow is two-stage:
@@ -92,6 +118,13 @@ There is also a model-config path:
   dependency group for Linux environments.
 - The default annotator config is OpenAI-backed, so `alpacaeval-eval`
   typically needs `OPENAI_API_KEY`.
+- Arena-Hard and MT-Bench require benchmark question files. The checked-in base
+  configs default to `questions.jsonl` inside each benchmark package, so update
+  `arenahard.question_file` and `mtbench.question_file` to point at the real
+  benchmark prompts in your environment.
+- Arena-Hard and MT-Bench judging is wrapped, not bundled. Install the judge
+  tools yourself and override `judge_command` if your local CLI differs from
+  the checked-in examples.
 
 ## Llama 3 and chat templating
 
@@ -132,6 +165,13 @@ Qwen3/Llama3 UltraFeedback and UltraChat checkpoints.
 - `skip_existing: true` avoids rerunning inference or eval if outputs already
   exist.
 
+Arena-Hard and MT-Bench use the same 8-model batch matrix and the same
+Qwen3/Llama3 family defaults as AlpacaEval:
+
+- Qwen3 uses tokenizer-default chat templating and `stop_token_ids: [151645]`.
+- Llama3 uses checked-in model-specific templates and
+  `stop_token_ids: [128001, 128009]`.
+
 ## Key config fields
 
 The pipeline reads the `alpacaeval` block in
@@ -158,6 +198,19 @@ The pipeline reads the `alpacaeval` block in
   `gpu_memory_utilization`.
 - `simpo_compat`: enforces `alpaca-eval==0.6.2` during evaluation.
 
+Arena-Hard and MT-Bench follow the same pattern with benchmark-specific config
+blocks:
+
+- `arenahard.*` and `mtbench.*` both include `model_name_or_path`,
+  `pretty_name`, `backend`, `output_dir`, `use_custom_chat_template`,
+  `prompt_template`, `generation`, `transformers`, and `vllm`.
+- `arenahard.judge_command`, `arenahard.judge_config`,
+  `arenahard.api_config`, `arenahard.question_file`, `arenahard.judge_model`,
+  and `arenahard.baseline_model` control Arena-Hard judge invocation.
+- `mtbench.judge_command`, `mtbench.show_result_command`,
+  `mtbench.reference_answer_file`, `mtbench.question_file`, and
+  `mtbench.judge_model` control MT-Bench judge invocation.
+
 ## Outputs
 
 The pipeline writes into `alpacaeval.output_dir`.
@@ -172,6 +225,13 @@ Expected artifacts:
 - `alpacaeval_model_config.yaml`: only written when using model-config
   evaluation.
 
+Arena-Hard and MT-Bench write benchmark-native answer payloads:
+
+- `model_answer.jsonl`: generated answers in the format expected by the judge
+  tool.
+- `metadata.json`: local generation metadata.
+- `results/`: judge outputs from the configured external command.
+
 Relative paths in the config are resolved relative to the config file, not the
 current shell directory.
 
@@ -181,6 +241,10 @@ Relevant tests live in:
 
 - `test/test_alpacaeval_pipeline.py`
 - `test/test_alpacaeval_batch_runner.py`
+- `test/test_arenahard_pipeline.py`
+- `test/test_arenahard_batch_runner.py`
+- `test/test_mtbench_pipeline.py`
+- `test/test_mtbench_batch_runner.py`
 
 The pipeline tests cover:
 

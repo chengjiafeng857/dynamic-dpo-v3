@@ -1,0 +1,51 @@
+policy_name: W-61/ultrafeedback-llama3-8b-margin-dpo
+precision: bf16
+
+mtbench:
+  pretty_name: ultrafeedback-llama3-8b-margin-dpo
+  model_name_or_path: W-61/ultrafeedback-llama3-8b-margin-dpo
+  backend: vllm
+  use_custom_chat_template: true
+  prompt_template: templates/ultrafeedback-llama3-8b-margin-dpo.jinja
+  output_dir: outputs/mtbench/ultrafeedback-llama3-8b-margin-dpo
+  question_file: questions.jsonl
+  reference_answer_file: reference_answer/gpt-4-1106-preview.jsonl
+  judge_model: gpt-4-1106-preview
+  judge_command:
+    - python
+    - -m
+    - fastchat.llm_judge.gen_judgment
+    - --answer-file
+    - "{answer_file}"
+    - --question-file
+    - "{question_file}"
+    - --reference-answer-file
+    - "{reference_answer_file}"
+    - --output-path
+    - "{judgment_file}"
+    - --model-list
+    - "{pretty_name}"
+  show_result_command:
+    - python
+    - -m
+    - fastchat.llm_judge.show_result
+    - --input-file
+    - "{judgment_file}"
+    - --model-list
+    - "{pretty_name}"
+  generation:
+    batch_size: 128
+    do_sample: false
+    max_new_tokens: 4096
+    stop_token_ids:
+      - 128001
+      - 128009
+    temperature: 0.0
+    top_p: 1.0
+  vllm:
+    tensor_parallel_size: 1
+    trust_remote_code: false
+    gpu_memory_utilization: 0.9
+  transformers:
+    device: cuda
+    trust_remote_code: false

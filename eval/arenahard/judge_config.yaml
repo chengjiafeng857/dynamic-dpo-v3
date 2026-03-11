@@ -1,0 +1,42 @@
+name: judgment config file for Arena Hard
+bench_name: arena-hard-v0.1
+judge_model: gpt-4-1106-preview
+reference: false
+ref_model: null
+baseline: true
+baseline_model: gpt-4-0314
+pairwise: true
+temperature: 0
+max_tokens: 4096
+regex_pattern: \[\[([AB<>=]+)\]\]
+system_prompt: 'Please act as an impartial judge and evaluate the quality of the responses
+  provided by two AI assistants to the user prompt displayed below. You will be given
+  assistant A''s answer and assistant B''s answer. Your job is to evaluate which assistant''s
+  answer is better.'
+prompt_template:
+  - '<|User Prompt|>
+
+    {question_1}
+
+
+    <|The Start of Assistant A''s Answer|>
+
+    {answer_1}
+
+    <|The End of Assistant A''s Answer|>
+
+
+    <|The Start of Assistant B''s Answer|>
+
+    {answer_2}
+
+    <|The End of Assistant B''s Answer|>'
+model_list:
+  - ultrafeedback-qwen3-8b-margin-dpo
+  - ultrafeedback-qwen3-8b-beta-dpo
+  - ultrafeedback-llama3-8b-margin-dpo
+  - ultrafeedback-llama3-8b-beta-dpo
+  - Llama3-8b-ultrafeedback-binarized-e-dpo
+  - Qwen3-8b-ultrafeedback-binarized-e-dpo
+  - ultrachat-qwen3-8b-sft
+  - ultrachat-llama-3-8b-sft

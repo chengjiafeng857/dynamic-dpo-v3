@@ -1,0 +1,8 @@
+ultrafeedback-qwen3-8b-beta-dpo:
+  model_name: W-61/ultrafeedback-qwen3-8b-beta-dpo
+  prompt_template: templates/ultrafeedback-qwen3-8b-beta-dpo.jinja
+  temperature: 0.0
+  max_tokens: 4096
+  stop_token_ids:
+    - 151645
+  num_choices: 1

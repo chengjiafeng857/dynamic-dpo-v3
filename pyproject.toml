@@ -47,6 +47,12 @@ train-e-dpo = "src.cli:main_e_dpo"
 alpacaeval-infer = "src.cli:main_alpacaeval_infer"
 alpacaeval-eval = "src.cli:main_alpacaeval_eval"
 alpacaeval-batch = "eval.alpacaeval.batch_runner:main"
+arenahard-infer = "src.cli:main_arenahard_infer"
+arenahard-eval = "src.cli:main_arenahard_eval"
+arenahard-batch = "eval.arenahard.batch_runner:main"
+mtbench-infer = "src.cli:main_mtbench_infer"
+mtbench-eval = "src.cli:main_mtbench_eval"
+mtbench-batch = "eval.mtbench.batch_runner:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

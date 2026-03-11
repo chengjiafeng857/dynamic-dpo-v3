@@ -1,0 +1,30 @@
+base_config: config_mtbench.yaml
+run_inference: true
+run_evaluation: true
+skip_existing: true
+continue_on_error: false
+
+models:
+  - model_name_or_path: W-61/ultrafeedback-qwen3-8b-margin-dpo
+    pretty_name: ultrafeedback-qwen3-8b-margin-dpo
+
+  - model_name_or_path: W-61/ultrafeedback-qwen3-8b-beta-dpo
+    pretty_name: ultrafeedback-qwen3-8b-beta-dpo
+
+  - model_name_or_path: W-61/ultrafeedback-llama3-8b-margin-dpo
+    pretty_name: ultrafeedback-llama3-8b-margin-dpo
+
+  - model_name_or_path: W-61/ultrafeedback-llama3-8b-beta-dpo
+    pretty_name: ultrafeedback-llama3-8b-beta-dpo
+
+  - model_name_or_path: jackf857/Llama3-8b-ultrafeedback-binarized-e-dpo
+    pretty_name: Llama3-8b-ultrafeedback-binarized-e-dpo
+
+  - model_name_or_path: jackf857/Qwen3-8b-ultrafeedback-binarized-e-dpo
+    pretty_name: Qwen3-8b-ultrafeedback-binarized-e-dpo
+
+  - model_name_or_path: W-61/ultrachat-qwen3-8b-sft
+    pretty_name: ultrachat-qwen3-8b-sft
+
+  - model_name_or_path: W-61/ultrachat-llama-3-8b-sft
+    pretty_name: ultrachat-llama-3-8b-sft

@@ -1,0 +1,9 @@
+Llama3-8b-ultrafeedback-binarized-e-dpo:
+  model_name: jackf857/Llama3-8b-ultrafeedback-binarized-e-dpo
+  prompt_template: templates/Llama3-8b-ultrafeedback-binarized-e-dpo.jinja
+  temperature: 0.0
+  max_tokens: 4096
+  stop_token_ids:
+    - 128001
+    - 128009
+  num_choices: 1

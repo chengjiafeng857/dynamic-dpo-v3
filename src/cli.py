@@ -607,3 +607,79 @@ def main_alpacaeval_eval():
         model_outputs_path=args.model_outputs,
         use_model_configs=bool(args.use_model_configs),
     )
+
+
+def main_arenahard_infer():
+    """Main entry point for Arena-Hard inference."""
+    parser = argparse.ArgumentParser(description="Run Arena-Hard inference")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="eval/arenahard/config_arenahard.yaml",
+    )
+    args = parser.parse_args()
+
+    from eval.arenahard.arenahard_infer import run_arenahard_inference
+
+    config = load_yaml(args.config)
+    config["_config_path"] = args.config
+    run_arenahard_inference(config)
+
+
+def main_arenahard_eval():
+    """Main entry point for Arena-Hard evaluation."""
+    parser = argparse.ArgumentParser(description="Run Arena-Hard evaluation")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="eval/arenahard/config_arenahard.yaml",
+    )
+    parser.add_argument("--model-answer", type=str, default=None)
+    args = parser.parse_args()
+
+    from eval.arenahard.arenahard_eval import run_arenahard_evaluation
+
+    config = load_yaml(args.config)
+    config["_config_path"] = args.config
+    run_arenahard_evaluation(
+        config,
+        model_answer_path=args.model_answer,
+    )
+
+
+def main_mtbench_infer():
+    """Main entry point for MT-Bench inference."""
+    parser = argparse.ArgumentParser(description="Run MT-Bench inference")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="eval/mtbench/config_mtbench.yaml",
+    )
+    args = parser.parse_args()
+
+    from eval.mtbench.mtbench_infer import run_mtbench_inference
+
+    config = load_yaml(args.config)
+    config["_config_path"] = args.config
+    run_mtbench_inference(config)
+
+
+def main_mtbench_eval():
+    """Main entry point for MT-Bench evaluation."""
+    parser = argparse.ArgumentParser(description="Run MT-Bench evaluation")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="eval/mtbench/config_mtbench.yaml",
+    )
+    parser.add_argument("--model-answer", type=str, default=None)
+    args = parser.parse_args()
+
+    from eval.mtbench.mtbench_eval import run_mtbench_evaluation
+
+    config = load_yaml(args.config)
+    config["_config_path"] = args.config
+    run_mtbench_evaluation(
+        config,
+        model_answer_path=args.model_answer,
+    )

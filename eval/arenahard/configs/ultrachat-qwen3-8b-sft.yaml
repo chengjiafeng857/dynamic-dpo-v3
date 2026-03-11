@@ -1,0 +1,8 @@
+ultrachat-qwen3-8b-sft:
+  model_name: W-61/ultrachat-qwen3-8b-sft
+  prompt_template: templates/ultrachat-qwen3-8b-sft.jinja
+  temperature: 0.0
+  max_tokens: 4096
+  stop_token_ids:
+    - 151645
+  num_choices: 1

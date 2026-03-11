@@ -1,0 +1,45 @@
+policy_name: W-61/ultrafeedback-llama3-8b-margin-dpo
+precision: bf16
+
+arenahard:
+  pretty_name: ultrafeedback-llama3-8b-margin-dpo
+  model_name_or_path: W-61/ultrafeedback-llama3-8b-margin-dpo
+  backend: vllm
+  use_custom_chat_template: true
+  prompt_template: templates/ultrafeedback-llama3-8b-margin-dpo.jinja
+  output_dir: outputs/arenahard/ultrafeedback-llama3-8b-margin-dpo
+  question_file: questions.jsonl
+  judge_model: gpt-4-1106-preview
+  baseline_model: gpt-4-0314
+  judge_config: judge_config.yaml
+  api_config: api_config.yaml
+  judge_command:
+    - python
+    - -m
+    - arena_hard_auto.judge
+    - --model-answer-file
+    - "{answer_file}"
+    - --judge-config
+    - "{judge_config}"
+    - --api-config
+    - "{api_config}"
+    - --question-file
+    - "{question_file}"
+    - --output-path
+    - "{judgment_file}"
+  generation:
+    batch_size: 128
+    do_sample: false
+    max_new_tokens: 4096
+    stop_token_ids:
+      - 128001
+      - 128009
+    temperature: 0.0
+    top_p: 1.0
+  vllm:
+    tensor_parallel_size: 1
+    trust_remote_code: false
+    gpu_memory_utilization: 0.9
+  transformers:
+    device: cuda
+    trust_remote_code: false

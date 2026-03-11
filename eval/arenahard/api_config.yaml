@@ -1,0 +1,7 @@
+ultrafeedback-llama3-8b-margin-dpo:
+  model_name: W-61/ultrafeedback-llama3-8b-margin-dpo
+  endpoints:
+    - api_base: http://127.0.0.1:8000/v1
+      api_key: token-abc123
+  api_type: openai
+  parallel: 8
