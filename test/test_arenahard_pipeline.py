@@ -73,7 +73,7 @@ class ArenaHardPipelineTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = _base_config(tmp_dir, "questions.jsonl")
             question_payload = (
-                '{"question_id":"q1","category":"general","turns":["Explain caching."]}\n'
+                '{"uid":"q1","category":"arena-hard-v0.1","prompt":"Explain caching."}\n'
             )
 
             with patch("eval.arenahard.arenahard_infer.PACKAGE_DIR", Path(tmp_dir)), patch(
@@ -84,6 +84,7 @@ class ArenaHardPipelineTest(unittest.TestCase):
 
             self.assertEqual(len(questions), 1)
             self.assertEqual(questions[0]["question_id"], "q1")
+            self.assertEqual(questions[0]["turns"], ["Explain caching."])
             self.assertTrue((Path(tmp_dir) / "questions.jsonl").exists())
 
     def test_inference_writes_model_answer_and_metadata(self):

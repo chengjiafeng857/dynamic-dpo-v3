@@ -44,7 +44,7 @@ def _summarize_text(text: str, *, max_chars: int = 512) -> str:
 
 
 def _normalize_question_row(row: Dict[str, Any]) -> Dict[str, Any] | None:
-    question_id = row.get("question_id", row.get("id"))
+    question_id = row.get("question_id", row.get("id", row.get("uid")))
     if question_id is None:
         return None
 
