@@ -30,7 +30,12 @@ def _deep_update(target: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, A
     return target
 
 
-def _apply_model_family_defaults(config: Dict[str, Any], model_name_or_path: str) -> None:
+def _apply_model_family_defaults(
+    config: Dict[str, Any],
+    *,
+    model_name_or_path: str,
+    pretty_name: str,
+) -> None:
     alpacaeval_cfg = config.setdefault("alpacaeval", {})
     generation_cfg = alpacaeval_cfg.setdefault("generation", {})
     model_name = model_name_or_path.lower()
@@ -40,7 +45,9 @@ def _apply_model_family_defaults(config: Dict[str, Any], model_name_or_path: str
         generation_cfg["stop_token_ids"] = [151645]
     elif "llama3" in model_name or "llama-3" in model_name:
         alpacaeval_cfg["use_custom_chat_template"] = True
-        alpacaeval_cfg["prompt_template"] = "templates/llama3-nobos.txt"
+        alpacaeval_cfg["prompt_template"] = (
+            f"templates/{sanitize_name(pretty_name)}.txt"
+        )
         generation_cfg["stop_token_ids"] = [128001, 128009]
 
 
@@ -69,7 +76,11 @@ def _build_model_config(
         Path("../../outputs/alpacaeval") / sanitize_name(pretty_name)
     )
 
-    _apply_model_family_defaults(config, model_name_or_path)
+    _apply_model_family_defaults(
+        config,
+        model_name_or_path=model_name_or_path,
+        pretty_name=pretty_name,
+    )
 
     model_overrides = model_entry.get("overrides", {})
     if model_overrides:

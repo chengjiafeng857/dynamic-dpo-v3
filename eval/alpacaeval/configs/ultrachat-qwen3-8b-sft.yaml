@@ -1,0 +1,15 @@
+ultrachat-qwen3-8b-sft:
+  prompt_template: templates/ultrachat-qwen3-8b-sft.txt
+  fn_completions: vllm_local_completions
+  completions_kwargs:
+    model_name: W-61/ultrachat-qwen3-8b-sft
+    model_kwargs:
+      torch_dtype: bfloat16
+    batch_size: 128
+    do_sample: true
+    max_new_tokens: 4096
+    stop_token_ids:
+      - 151645
+    temperature: 0.9
+    top_p: 1.0
+  pretty_name: ultrachat-qwen3-8b-sft

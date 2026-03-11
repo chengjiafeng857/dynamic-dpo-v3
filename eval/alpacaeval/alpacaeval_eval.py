@@ -80,7 +80,7 @@ def _build_runtime_model_config(config: Dict[str, Any]) -> Path:
     elif backend == "transformers":
         fn_completions = "huggingface_local_completions"
     else:
-        raise ValueError("alpacaeval.backend must be 'vllm' or 'transformers'.")
+        raise ValueError("alpacaeval.backend must be 'transformers' or 'vllm'.")
 
     completions_kwargs: Dict[str, Any] = {
         "model_name": get_model_name_or_path(config),

@@ -1,0 +1,16 @@
+ultrafeedback-llama3-8b-margin-dpo:
+  prompt_template: templates/ultrafeedback-llama3-8b-margin-dpo.txt
+  fn_completions: vllm_local_completions
+  completions_kwargs:
+    model_name: W-61/ultrafeedback-llama3-8b-margin-dpo
+    model_kwargs:
+      torch_dtype: bfloat16
+    batch_size: 128
+    do_sample: true
+    max_new_tokens: 4096
+    stop_token_ids:
+      - 128001
+      - 128009
+    temperature: 0.9
+    top_p: 1.0
+  pretty_name: ultrafeedback-llama3-8b-margin-dpo

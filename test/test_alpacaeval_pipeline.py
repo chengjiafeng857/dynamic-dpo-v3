@@ -34,7 +34,7 @@ def _base_config(output_dir: str) -> dict:
             "model_name_or_path": "dummy/local-model",
             "backend": "transformers",
             "simpo_compat": False,
-            "prompt_template": "templates/llama3.txt",
+            "prompt_template": "templates/ultrafeedback-llama3-8b-margin-dpo.txt",
             "output_dir": output_dir,
             "dataset_name": "tatsu-lab/alpaca_eval",
             "dataset_config": "alpaca_eval",
@@ -71,7 +71,12 @@ def _real_alpacaeval_rows() -> tuple[dict, ...]:
 
 @functools.lru_cache(maxsize=None)
 def _real_tokenizer(model_name_or_path: str):
-    return AutoTokenizer.from_pretrained(model_name_or_path, use_fast=True)
+    try:
+        return AutoTokenizer.from_pretrained(model_name_or_path, use_fast=True)
+    except Exception as exc:
+        raise unittest.SkipTest(
+            f"Real tokenizer smoke unavailable for {model_name_or_path}: {exc}"
+        ) from exc
 
 
 class AlpacaEvalPipelineTest(unittest.TestCase):
@@ -106,7 +111,11 @@ class AlpacaEvalPipelineTest(unittest.TestCase):
             self.assertEqual(payload[0]["output"], "Hello there.")
             self.assertEqual(payload[0]["generator"], "Dummy-SimPO")
             self.assertEqual(metadata["backend"], "transformers")
-            self.assertTrue(metadata["prompt_template"].endswith("llama3.txt"))
+            self.assertTrue(
+                metadata["prompt_template"].endswith(
+                    "ultrafeedback-llama3-8b-margin-dpo.txt"
+                )
+            )
 
     def test_inference_can_use_model_default_chat_template(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -458,7 +467,11 @@ class AlpacaEvalPipelineTest(unittest.TestCase):
             config_path = _build_runtime_model_config(config)
             payload = yaml_safe_load(config_path)
             key = next(iter(payload))
-            self.assertTrue(payload[key]["prompt_template"].endswith("llama3.txt"))
+            self.assertTrue(
+                payload[key]["prompt_template"].endswith(
+                    "ultrafeedback-llama3-8b-margin-dpo.txt"
+                )
+            )
             self.assertEqual(payload[key]["pretty_name"], "Dummy-SimPO")
 
     def test_evaluate_from_model_rejects_model_default_chat_template_mode(self):

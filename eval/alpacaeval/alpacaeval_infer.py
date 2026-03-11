@@ -94,10 +94,7 @@ def _generate_with_vllm(
 
     llm = LLM(**llm_kwargs)
     outputs = llm.generate(prompts, SamplingParams(**sampling_kwargs))
-    return [
-        result.outputs[0].text if result.outputs else ""
-        for result in outputs
-    ]
+    return [result.outputs[0].text if result.outputs else "" for result in outputs]
 
 
 def _generate_with_transformers(
@@ -259,7 +256,7 @@ def run_alpacaeval_inference(config: Dict[str, Any]) -> Path:
     elif backend == "transformers":
         generations = _generate_with_transformers(config, prompts, generation_cfg)
     else:
-        raise ValueError("alpacaeval.backend must be 'vllm' or 'transformers'.")
+        raise ValueError("alpacaeval.backend must be 'transformers' or 'vllm'.")
 
     for sample, output_text in zip(outputs_payload, generations, strict=True):
         sample["output"] = output_text

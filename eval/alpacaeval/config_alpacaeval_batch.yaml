@@ -7,7 +7,6 @@ use_model_configs: false
 
 overrides:
   alpacaeval:
-    backend: transformers
     simpo_compat: false
 
 models:
@@ -23,8 +22,14 @@ models:
   - model_name_or_path: W-61/ultrafeedback-llama3-8b-beta-dpo
     pretty_name: ultrafeedback-llama3-8b-beta-dpo
 
+  - model_name_or_path: jackf857/Llama3-8b-ultrafeedback-binarized-e-dpo
+    pretty_name: Llama3-8b-ultrafeedback-binarized-e-dpo
+
   - model_name_or_path: jackf857/Qwen3-8b-ultrafeedback-binarized-e-dpo
     pretty_name: Qwen3-8b-ultrafeedback-binarized-e-dpo
 
-  - model_name_or_path: jackf857/Llama3-8b-ultrafeedback-binarized-e-dpo
-    pretty_name: Llama3-8b-ultrafeedback-binarized-e-dpo
+  - model_name_or_path: W-61/ultrachat-qwen3-8b-sft
+    pretty_name: ultrachat-qwen3-8b-sft
+
+  - model_name_or_path: W-61/ultrachat-llama-3-8b-sft
+    pretty_name: ultrachat-llama-3-8b-sft

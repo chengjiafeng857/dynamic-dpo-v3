@@ -1,0 +1,15 @@
+Qwen3-8b-ultrafeedback-binarized-e-dpo:
+  prompt_template: templates/Qwen3-8b-ultrafeedback-binarized-e-dpo.txt
+  fn_completions: vllm_local_completions
+  completions_kwargs:
+    model_name: jackf857/Qwen3-8b-ultrafeedback-binarized-e-dpo
+    model_kwargs:
+      torch_dtype: bfloat16
+    batch_size: 128
+    do_sample: true
+    max_new_tokens: 4096
+    stop_token_ids:
+      - 151645
+    temperature: 0.9
+    top_p: 1.0
+  pretty_name: Qwen3-8b-ultrafeedback-binarized-e-dpo

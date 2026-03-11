@@ -82,6 +82,14 @@ def load_prompt_template(config: Dict[str, Any]) -> tuple[Path, str]:
         raise ValueError("alpacaeval.prompt_template is required.")
 
     resolved_path = resolve_path(config, template_path)
+    if not resolved_path.exists():
+        fallback_path = Path(str(template_path)).expanduser().resolve()
+        if fallback_path.exists():
+            resolved_path = fallback_path
+        else:
+            package_relative_path = (Path(__file__).resolve().parent / str(template_path)).resolve()
+            if package_relative_path.exists():
+                resolved_path = package_relative_path
     return resolved_path, resolved_path.read_text(encoding="utf-8")
 
 

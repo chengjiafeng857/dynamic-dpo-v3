@@ -1,0 +1,16 @@
+ultrachat-llama-3-8b-sft:
+  prompt_template: templates/ultrachat-llama-3-8b-sft.txt
+  fn_completions: vllm_local_completions
+  completions_kwargs:
+    model_name: W-61/ultrachat-llama-3-8b-sft
+    model_kwargs:
+      torch_dtype: bfloat16
+    batch_size: 128
+    do_sample: true
+    max_new_tokens: 4096
+    stop_token_ids:
+      - 128001
+      - 128009
+    temperature: 0.9
+    top_p: 1.0
+  pretty_name: ultrachat-llama-3-8b-sft

@@ -17,7 +17,7 @@ def _base_config() -> dict:
             "backend": "vllm",
             "simpo_compat": True,
             "use_custom_chat_template": True,
-            "prompt_template": "templates/llama3.txt",
+            "prompt_template": "templates/ultrafeedback-llama3-8b-margin-dpo.txt",
             "output_dir": "../../outputs/alpacaeval/placeholder",
             "annotators_config": "weighted_alpaca_eval_gpt4_turbo",
             "generation": {
@@ -81,7 +81,10 @@ class AlpacaEvalBatchRunnerTest(unittest.TestCase):
 
         llama_cfg = run_plans[1]["config"]["alpacaeval"]
         self.assertTrue(llama_cfg["use_custom_chat_template"])
-        self.assertEqual(llama_cfg["prompt_template"], "templates/llama3-nobos.txt")
+        self.assertEqual(
+            llama_cfg["prompt_template"],
+            "templates/ultrafeedback-llama3-8b-beta-dpo.txt",
+        )
         self.assertEqual(llama_cfg["output_dir"], "../../outputs/alpacaeval/ultrafeedback-llama3-8b-beta-dpo")
         self.assertEqual(llama_cfg["generation"]["stop_token_ids"], [128001, 128009])
 

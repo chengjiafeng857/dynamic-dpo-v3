@@ -1,14 +1,14 @@
-policy_name: princeton-nlp/Llama-3-Instruct-8B-SimPO
+policy_name: W-61/ultrafeedback-llama3-8b-margin-dpo
 precision: bf16
 
 alpacaeval:
-  pretty_name: Llama-3-Instruct-8B-SimPO
-  model_name_or_path: princeton-nlp/Llama-3-Instruct-8B-SimPO
+  pretty_name: ultrafeedback-llama3-8b-margin-dpo
+  model_name_or_path: W-61/ultrafeedback-llama3-8b-margin-dpo
   backend: vllm
-  simpo_compat: true
-  use_custom_chat_template: false
-  prompt_template: templates/llama3.txt
-  output_dir: outputs/alpacaeval/llama-3-instruct-8b-simpo
+  simpo_compat: false
+  use_custom_chat_template: true
+  prompt_template: templates/ultrafeedback-llama3-8b-margin-dpo.txt
+  output_dir: outputs/alpacaeval/ultrafeedback-llama3-8b-margin-dpo
   dataset_name: tatsu-lab/alpaca_eval
   dataset_config: alpaca_eval
   dataset_split: eval
