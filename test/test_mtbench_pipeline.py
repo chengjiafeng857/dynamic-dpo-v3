@@ -1,5 +1,6 @@
 """Unit tests for MT-Bench inference and evaluation helpers."""
 
+import io
 import json
 import sys
 import tempfile
@@ -9,7 +10,8 @@ from unittest.mock import patch
 
 from src.cli import main_mtbench_eval, main_mtbench_infer
 from eval.mtbench.mtbench_eval import run_mtbench_evaluation
-from eval.mtbench.mtbench_infer import run_mtbench_inference
+from eval.mtbench.mtbench_infer import _load_mtbench_questions, run_mtbench_inference
+from eval.model_generation import _load_tokenizer, _prepare_tokenizer_path, load_render_tokenizer
 
 
 def _base_config(output_dir: str, question_file: str, reference_answer_file: str) -> dict:
@@ -61,6 +63,8 @@ def _base_config(output_dir: str, question_file: str, reference_answer_file: str
 
 class _DummyTokenizer:
     chat_template = "dummy"
+    pad_token_id = 0
+    eos_token = "<eos>"
 
     def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=False):
         if tokenize:
@@ -71,6 +75,77 @@ class _DummyTokenizer:
 
 
 class MTBenchPipelineTest(unittest.TestCase):
+    def test_prepare_tokenizer_path_rewrites_tokenizers_backend_class(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source_dir = Path(tmp_dir) / "source"
+            source_dir.mkdir()
+            (source_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
+            (source_dir / "tokenizer_config.json").write_text(
+                json.dumps(
+                    {
+                        "tokenizer_class": "TokenizersBackend",
+                        "bos_token": "<|begin_of_text|>",
+                        "eos_token": "<|end_of_text|>",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("eval.model_generation.Path.home", return_value=Path(tmp_dir)):
+                sanitized_path = Path(_prepare_tokenizer_path(str(source_dir)))
+
+            payload = json.loads((sanitized_path / "tokenizer_config.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["tokenizer_class"], "PreTrainedTokenizerFast")
+
+    def test_load_tokenizer_retries_from_sanitized_path_for_tokenizers_backend(self):
+        tokenizer = object()
+        with (
+            patch(
+                "eval.model_generation.AutoTokenizer.from_pretrained",
+                side_effect=[
+                    ValueError("Tokenizer class TokenizersBackend does not exist or is not currently imported."),
+                    tokenizer,
+                ],
+            ) as mock_from_pretrained,
+            patch(
+                "eval.model_generation._prepare_tokenizer_path",
+                return_value="/tmp/sanitized-tokenizer",
+            ) as mock_prepare,
+        ):
+            resolved = _load_tokenizer("W-61/ultrafeedback-llama3-8b-margin-dpo", trust_remote_code=False)
+
+        self.assertIs(resolved, tokenizer)
+        mock_prepare.assert_called_once_with("W-61/ultrafeedback-llama3-8b-margin-dpo")
+        self.assertEqual(mock_from_pretrained.call_args_list[1].args[0], "/tmp/sanitized-tokenizer")
+
+    def test_load_render_tokenizer_uses_shared_tokenizer_loader(self):
+        config = _base_config("/tmp/out", "questions.jsonl", "reference.jsonl")
+        with patch(
+            "eval.model_generation._load_tokenizer",
+            return_value=_DummyTokenizer(),
+        ) as mock_load:
+            tokenizer = load_render_tokenizer(config, "mtbench")
+
+        self.assertIsInstance(tokenizer, _DummyTokenizer)
+        mock_load.assert_called_once_with("dummy/local-model", trust_remote_code=False)
+
+    def test_load_questions_downloads_default_question_file_when_missing(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = _base_config(tmp_dir, "questions.jsonl", "reference.jsonl")
+            question_payload = (
+                '{"question_id":"q1","category":"writing","turns":["Draft a poem."]}\n'
+            )
+
+            with patch("eval.mtbench.mtbench_infer.PACKAGE_DIR", Path(tmp_dir)), patch(
+                "eval.benchmark_common.urllib.request.urlopen",
+                return_value=io.BytesIO(question_payload.encode("utf-8")),
+            ):
+                questions = _load_mtbench_questions(config)
+
+            self.assertEqual(len(questions), 1)
+            self.assertEqual(questions[0]["question_id"], "q1")
+            self.assertTrue((Path(tmp_dir) / "questions.jsonl").exists())
+
     def test_inference_writes_model_answer_and_metadata(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             question_file = Path(tmp_dir) / "questions.jsonl"

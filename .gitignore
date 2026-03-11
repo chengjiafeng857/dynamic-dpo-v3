@@ -73,3 +73,5 @@ outputs/
 .hf/
 .huggingface/
 eval_reference/
+eval/mtbench/questions.jsonl
+eval/arenahard/questions.jsonl
