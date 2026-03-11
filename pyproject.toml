@@ -33,9 +33,11 @@ ultra = [
 [dependency-groups]
 "alpaca-eval-0.6.2" = [
     "alpaca-eval==0.6.2",
+    "setuptools>=80.9.0",
 ]
 eval-vllm = [
     "alpaca-eval",
+    "setuptools>=80.9.0",
     "vllm",
 ]
 

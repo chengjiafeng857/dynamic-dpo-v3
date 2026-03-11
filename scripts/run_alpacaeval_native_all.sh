@@ -103,7 +103,7 @@ for config_path in "${config_paths[@]}"; do
   relative_config_path="configs/${config_name}"
 
   command=(
-    uv run python -m alpaca_eval.main evaluate_from_model
+    uv run --with setuptools python -m alpaca_eval.main evaluate_from_model
     --model_configs "$relative_config_path"
     --annotators_config "$ANNOTATORS_CONFIG"
     --output_path "$output_path"
