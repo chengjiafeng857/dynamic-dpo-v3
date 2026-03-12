@@ -1,5 +1,5 @@
 """
-Generate model outputs for the HH dataset (single-turn prompts only).
+Generate HH single-turn outputs with either transformers or vLLM.
 """
 
 from __future__ import annotations
@@ -8,14 +8,37 @@ import argparse
 import json
 import os
 import re
-from typing import Iterable, List
+from pathlib import Path
+from typing import Any, Iterable, List
 
 import torch
 from datasets import load_dataset
-from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
+import yaml
 
 TAG_RE = re.compile(r"\n\n(Human|Assistant): ?")
+
+
+def _load_config(path: str | Path) -> dict[str, Any]:
+    with Path(path).open("r", encoding="utf-8") as handle:
+        return yaml.safe_load(handle) or {}
+
+
+def _parse_bool_arg(value: str) -> bool:
+    lowered = str(value).strip().lower()
+    if lowered in {"1", "true", "yes", "y"}:
+        return True
+    if lowered in {"0", "false", "no", "n"}:
+        return False
+    raise argparse.ArgumentTypeError(f"Invalid boolean value: {value}")
+
+
+def _resolve_config_value(cli_value: Any, config_value: Any, default_value: Any) -> Any:
+    if cli_value is not None:
+        return cli_value
+    if config_value is not None:
+        return config_value
+    return default_value
 
 
 def _strip_one_leading_newline(text: str) -> str:
@@ -49,11 +72,21 @@ def _extract_single_turn_instruction(text: str) -> str | None:
     return messages[0]["content"]
 
 
+def _extract_single_turn_pair(text: str) -> tuple[str, str] | None:
+    messages = _parse_hh_to_messages(text)
+    if len(messages) != 2:
+        return None
+    if messages[0]["role"] != "user" or messages[1]["role"] != "assistant":
+        return None
+    return messages[0]["content"], messages[1]["content"]
+
+
 def load_hh_single_turn_instructions(
     repo_id: str = "Anthropic/hh-rlhf",
     split: str = "test",
+    data_dir: str | None = None,
 ) -> List[str]:
-    dataset = load_dataset(repo_id, split=split)
+    dataset = load_dataset(repo_id, data_dir=data_dir, split=split)
     instructions: list[str] = []
     for row in dataset:
         text = row.get("chosen") or row.get("prompt") or row.get("text")
@@ -64,6 +97,31 @@ def load_hh_single_turn_instructions(
             continue
         instructions.append(instruction)
     return instructions
+
+
+def load_hh_single_turn_chosen_outputs(
+    repo_id: str = "Anthropic/hh-rlhf",
+    split: str = "test",
+    data_dir: str | None = None,
+) -> list[dict[str, str]]:
+    dataset = load_dataset(repo_id, data_dir=data_dir, split=split)
+    rows: list[dict[str, str]] = []
+    for row in dataset:
+        chosen = row.get("chosen")
+        if chosen is None:
+            continue
+        pair = _extract_single_turn_pair(chosen)
+        if pair is None:
+            continue
+        instruction, output = pair
+        rows.append(
+            {
+                "instruction": instruction,
+                "output": output,
+                "generator": f"{repo_id}:{split}:chosen",
+            }
+        )
+    return rows
 
 
 def _format_prompt(
@@ -163,32 +221,70 @@ def _resolve_eos_token_id(tokenizer: AutoTokenizer) -> int | list[int] | None:
     return eos_token_ids
 
 
-def generate_model_outputs(
+def _generate_outputs_with_vllm(
     model_name: str,
-    output_file: str,
-    max_new_tokens: int = 512,
-    batch_size: int = 1,
-    device: str = "cuda",
-    temperature: float = 0.7,
-    top_p: float = 0.9,
-    max_input_tokens: int = 2048,
-    max_instances: int | None = None,
-    seed: int | None = 42,
-    dataset_repo: str = "Anthropic/hh-rlhf",
-    dataset_split: str = "test",
-    apply_chat_template: bool = True,
-) -> None:
+    prompts: list[str],
+    tokenizer: AutoTokenizer,
+    max_new_tokens: int,
+    temperature: float,
+    top_p: float,
+    seed: int | None,
+    tensor_parallel_size: int,
+    gpu_memory_utilization: float | None,
+    trust_remote_code: bool,
+) -> list[str]:
+    try:
+        from vllm import LLM, SamplingParams
+    except ImportError as exc:
+        raise RuntimeError(
+            "backend=vllm requires the optional vllm package."
+        ) from exc
+
+    llm_kwargs = {
+        "model": model_name,
+        "tokenizer": model_name,
+        "tensor_parallel_size": tensor_parallel_size,
+        "trust_remote_code": trust_remote_code,
+    }
+    if seed is not None:
+        llm_kwargs["seed"] = seed
+    if gpu_memory_utilization is not None:
+        llm_kwargs["gpu_memory_utilization"] = gpu_memory_utilization
+
+    llm = LLM(**llm_kwargs)
+    stop_token_ids = _resolve_eos_token_id(tokenizer)
+    sampling_kwargs = {
+        "max_tokens": max_new_tokens,
+        "temperature": temperature if temperature > 0 else 0.0,
+        "top_p": top_p if temperature > 0 else 1.0,
+    }
+    if stop_token_ids is not None:
+        if isinstance(stop_token_ids, int):
+            sampling_kwargs["stop_token_ids"] = [stop_token_ids]
+        else:
+            sampling_kwargs["stop_token_ids"] = list(stop_token_ids)
+
+    sampling_params = SamplingParams(**sampling_kwargs)
+    outputs = llm.generate(prompts, sampling_params)
+    return [
+        result.outputs[0].text.strip() if result.outputs else ""
+        for result in outputs
+    ]
+
+
+def _generate_outputs_with_transformers(
+    model_name: str,
+    prompts: list[str],
+    tokenizer: AutoTokenizer,
+    max_new_tokens: int,
+    batch_size: int,
+    device: str,
+    temperature: float,
+    top_p: float,
+    max_input_tokens: int,
+) -> list[str]:
     resolved_device = _resolve_device(device)
     dtype = _resolve_dtype(resolved_device)
-
-    if seed is not None:
-        set_seed(seed)
-
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
-    tokenizer.padding_side = "left"
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token = tokenizer.eos_token
-
     eos_token_id = _resolve_eos_token_id(tokenizer)
 
     model_kwargs = {"torch_dtype": dtype}
@@ -200,28 +296,11 @@ def generate_model_outputs(
         model = model.to(resolved_device)
     model.eval()
 
-    instructions = load_hh_single_turn_instructions(
-        repo_id=dataset_repo, split=dataset_split
-    )
-    if max_instances is not None:
-        instructions = instructions[:max_instances]
-
-    outputs = []
-    output_dir = os.path.dirname(output_file)
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-
     do_sample = temperature > 0
-
-    progress = tqdm(total=len(instructions), desc="Generating", unit="examples")
-    for batch in _batched(instructions, batch_size):
-        prompts = [
-            _format_prompt(tokenizer, instruction, apply_chat_template)
-            for instruction in batch
-        ]
-
+    outputs: list[str] = []
+    for prompt_batch in _batched(prompts, batch_size):
         inputs = tokenizer(
-            prompts,
+            prompt_batch,
             return_tensors="pt",
             padding=True,
             truncation=True,
@@ -249,23 +328,122 @@ def generate_model_outputs(
         with torch.inference_mode():
             generated = model.generate(**inputs, **gen_kwargs)
 
-        for idx, instruction in enumerate(batch):
+        for idx in range(len(prompt_batch)):
             if padded_input_length is not None:
                 prompt_length = padded_input_length
             else:
                 prompt_length = input_lengths[idx]
             output_ids = generated[idx][prompt_length:]
-            text = tokenizer.decode(output_ids, skip_special_tokens=True).strip()
             outputs.append(
-                {
-                    "instruction": instruction,
-                    "output": text,
-                    "generator": model_name,
-                }
+                tokenizer.decode(output_ids, skip_special_tokens=True).strip()
             )
-        progress.update(len(batch))
 
-    progress.close()
+    return outputs
+
+
+def generate_model_outputs(
+    model_name: str,
+    output_file: str,
+    max_new_tokens: int = 512,
+    batch_size: int = 1,
+    device: str = "cuda",
+    temperature: float = 0.7,
+    top_p: float = 0.9,
+    max_input_tokens: int = 2048,
+    max_instances: int | None = None,
+    seed: int | None = 42,
+    dataset_repo: str = "Anthropic/hh-rlhf",
+    dataset_split: str = "test",
+    dataset_data_dir: str | None = None,
+    apply_chat_template: bool = True,
+    extract_chosen: bool = False,
+    backend: str = "transformers",
+    tensor_parallel_size: int = 1,
+    gpu_memory_utilization: float | None = None,
+    trust_remote_code: bool = False,
+) -> None:
+    output_dir = os.path.dirname(output_file)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
+    if extract_chosen:
+        outputs = load_hh_single_turn_chosen_outputs(
+            repo_id=dataset_repo,
+            split=dataset_split,
+            data_dir=dataset_data_dir,
+        )
+        if max_instances is not None:
+            outputs = outputs[:max_instances]
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(outputs, f, indent=2, ensure_ascii=False)
+        print(f"Saved {len(outputs)} chosen outputs to {output_file}")
+        return
+
+    if seed is not None:
+        set_seed(seed)
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name,
+        use_fast=True,
+        trust_remote_code=trust_remote_code,
+    )
+    tokenizer.padding_side = "left"
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    instructions = load_hh_single_turn_instructions(
+        repo_id=dataset_repo,
+        split=dataset_split,
+        data_dir=dataset_data_dir,
+    )
+    if max_instances is not None:
+        instructions = instructions[:max_instances]
+
+    prompts = [
+        _format_prompt(tokenizer, instruction, apply_chat_template)
+        for instruction in instructions
+    ]
+    if prompts:
+        print("[HH-EVAL] Sample formatted prompt:")
+        print(prompts[0])
+        print("[HH-EVAL] End sample formatted prompt")
+
+    if backend == "vllm":
+        if device != "cuda":
+            raise ValueError("backend=vllm currently requires --device cuda.")
+        generated_texts = _generate_outputs_with_vllm(
+            model_name=model_name,
+            prompts=prompts,
+            tokenizer=tokenizer,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            seed=seed,
+            tensor_parallel_size=tensor_parallel_size,
+            gpu_memory_utilization=gpu_memory_utilization,
+            trust_remote_code=trust_remote_code,
+        )
+    else:
+        generated_texts = _generate_outputs_with_transformers(
+            model_name=model_name,
+            prompts=prompts,
+            tokenizer=tokenizer,
+            max_new_tokens=max_new_tokens,
+            batch_size=batch_size,
+            device=device,
+            temperature=temperature,
+            top_p=top_p,
+            max_input_tokens=max_input_tokens,
+        )
+
+    outputs = [
+        {
+            "instruction": instruction,
+            "output": text,
+            "generator": model_name,
+        }
+        for instruction, text in zip(instructions, generated_texts)
+    ]
 
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(outputs, f, indent=2, ensure_ascii=False)
@@ -278,52 +456,70 @@ def main() -> None:
         description="Generate outputs for HH single-turn prompts"
     )
     parser.add_argument(
+        "--config",
+        type=str,
+        default="eval/gpt_judge_HH/config_eval_HH.yaml",
+        help="Path to HH evaluation config YAML.",
+    )
+    parser.add_argument(
+        "--model_key",
+        type=str,
+        default=None,
+        help="Model key under config.models to generate.",
+    )
+    parser.add_argument(
+        "--output_key",
+        type=str,
+        default=None,
+        help="Output key under config.inputs to write.",
+    )
+    parser.add_argument(
         "--model_name",
         type=str,
-        default="W-61/hh-llama32-1b-sft",
+        default=None,
         help="HuggingFace model ID or local path",
     )
     parser.add_argument(
         "--output_file",
         type=str,
-        default="test/alpacaeval/outputs/hh_model_outputs.json",
+        default=None,
         help="Path to save the outputs",
     )
     parser.add_argument(
         "--max_new_tokens",
         type=int,
-        default=512,
+        default=None,
         help="Maximum number of new tokens to generate",
     )
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=1,
+        default=None,
         help="Batch size for inference",
     )
     parser.add_argument(
         "--device",
         type=str,
-        default="cuda" if torch.cuda.is_available() else "cpu",
+        default=None,
         choices=["cpu", "cuda", "mps"],
         help="Device to use for inference",
     )
     parser.add_argument(
         "--temperature",
         type=float,
-        default=0.7,
+        default=None,
         help="Sampling temperature (0 for greedy)",
     )
     parser.add_argument(
         "--top_p",
         type=float,
-        default=0.9,
+        default=None,
         help="Top-p nucleus sampling",
     )
     parser.add_argument(
         "--max_input_tokens",
         type=int,
-        default=2048,
+        default=None,
         help="Maximum input token length",
     )
     parser.add_argument(
@@ -335,43 +531,170 @@ def main() -> None:
     parser.add_argument(
         "--dataset_repo",
         type=str,
-        default="Anthropic/hh-rlhf",
+        default=None,
         help="HuggingFace dataset repo ID",
     )
     parser.add_argument(
         "--dataset_split",
         type=str,
-        default="test",
+        default=None,
         help="Dataset split to use",
     )
     parser.add_argument(
+        "--dataset_data_dir",
+        "--data_dir",
+        dest="dataset_data_dir",
+        type=str,
+        default=None,
+        help="HH dataset sub-directory, for example helpful-base or harmless-base.",
+    )
+    parser.add_argument(
         "--apply_chat_template",
-        type=lambda value: str(value).lower() in {"1", "true", "yes", "y"},
-        default=True,
+        type=_parse_bool_arg,
+        default=None,
         help="Whether to apply the tokenizer chat template (true/false).",
     )
     parser.add_argument(
         "--seed",
         type=int,
-        default=42,
+        default=None,
         help="Random seed for generation",
+    )
+    parser.add_argument(
+        "--extract_chosen",
+        action="store_true",
+        default=None,
+        help="Write HH chosen responses as outputs instead of running model generation.",
+    )
+    parser.add_argument(
+        "--backend",
+        type=str,
+        default=None,
+        choices=["transformers", "vllm"],
+        help="Generation backend to use.",
+    )
+    parser.add_argument(
+        "--tensor_parallel_size",
+        type=int,
+        default=None,
+        help="vLLM tensor parallel size.",
+    )
+    parser.add_argument(
+        "--gpu_memory_utilization",
+        type=float,
+        default=None,
+        help="Optional vLLM GPU memory utilization fraction.",
+    )
+    parser.add_argument(
+        "--trust_remote_code",
+        action="store_true",
+        default=None,
+        help="Allow custom model/tokenizer code when loading backends.",
     )
 
     args = parser.parse_args()
+    config = _load_config(args.config)
+    dataset_cfg = config.get("dataset", {})
+    generation_cfg = config.get("generation", {})
+    models_cfg = config.get("models", {})
+    inputs_cfg = config.get("inputs", {})
+
+    if not isinstance(dataset_cfg, dict):
+        raise ValueError("dataset config must be a mapping.")
+    if not isinstance(generation_cfg, dict):
+        raise ValueError("generation config must be a mapping.")
+    if not isinstance(models_cfg, dict):
+        raise ValueError("models config must be a mapping.")
+    if not isinstance(inputs_cfg, dict):
+        raise ValueError("inputs config must be a mapping.")
+
+    extract_chosen = _resolve_config_value(
+        args.extract_chosen,
+        generation_cfg.get("extract_chosen"),
+        False,
+    )
+    default_model_key = "chosen" if extract_chosen else "sft"
+    model_key = _resolve_config_value(
+        args.model_key,
+        generation_cfg.get("model_key"),
+        default_model_key,
+    )
+    output_key = _resolve_config_value(
+        args.output_key,
+        generation_cfg.get("output_key"),
+        model_key,
+    )
+
+    model_name = _resolve_config_value(args.model_name, models_cfg.get(model_key), None)
+    if not extract_chosen and not model_name:
+        raise ValueError(
+            f"No model configured for model_key={model_key!r}. "
+            "Set config.models.<key> or pass --model_name."
+        )
+
+    output_file = _resolve_config_value(args.output_file, inputs_cfg.get(output_key), None)
+    if not output_file:
+        raise ValueError(
+            f"No output file configured for output_key={output_key!r}. "
+            "Set config.inputs.<key> or pass --output_file."
+        )
+
     generate_model_outputs(
-        model_name=args.model_name,
-        output_file=args.output_file,
-        max_new_tokens=args.max_new_tokens,
-        batch_size=args.batch_size,
-        device=args.device,
-        temperature=args.temperature,
-        top_p=args.top_p,
-        max_input_tokens=args.max_input_tokens,
-        max_instances=args.max_instances,
-        seed=args.seed,
-        dataset_repo=args.dataset_repo,
-        dataset_split=args.dataset_split,
-        apply_chat_template=args.apply_chat_template,
+        model_name=model_name or "Anthropic/hh-rlhf",
+        output_file=output_file,
+        max_new_tokens=_resolve_config_value(args.max_new_tokens, generation_cfg.get("max_new_tokens"), 512),
+        batch_size=_resolve_config_value(args.batch_size, generation_cfg.get("batch_size"), 1),
+        device=_resolve_config_value(
+            args.device,
+            generation_cfg.get("device"),
+            "cuda" if torch.cuda.is_available() else "cpu",
+        ),
+        temperature=_resolve_config_value(args.temperature, generation_cfg.get("temperature"), 0.7),
+        top_p=_resolve_config_value(args.top_p, generation_cfg.get("top_p"), 0.9),
+        max_input_tokens=_resolve_config_value(
+            args.max_input_tokens,
+            generation_cfg.get("max_input_tokens"),
+            2048,
+        ),
+        max_instances=_resolve_config_value(
+            args.max_instances,
+            dataset_cfg.get("max_instances"),
+            None,
+        ),
+        seed=_resolve_config_value(args.seed, generation_cfg.get("seed"), 42),
+        dataset_repo=_resolve_config_value(
+            args.dataset_repo,
+            dataset_cfg.get("repo_id") or dataset_cfg.get("name"),
+            "Anthropic/hh-rlhf",
+        ),
+        dataset_split=_resolve_config_value(args.dataset_split, dataset_cfg.get("split"), "test"),
+        dataset_data_dir=_resolve_config_value(
+            args.dataset_data_dir,
+            dataset_cfg.get("data_dir") or dataset_cfg.get("config_name"),
+            None,
+        ),
+        apply_chat_template=_resolve_config_value(
+            args.apply_chat_template,
+            generation_cfg.get("apply_chat_template"),
+            True,
+        ),
+        extract_chosen=extract_chosen,
+        backend=_resolve_config_value(args.backend, generation_cfg.get("backend"), "transformers"),
+        tensor_parallel_size=_resolve_config_value(
+            args.tensor_parallel_size,
+            generation_cfg.get("tensor_parallel_size"),
+            1,
+        ),
+        gpu_memory_utilization=_resolve_config_value(
+            args.gpu_memory_utilization,
+            generation_cfg.get("gpu_memory_utilization"),
+            None,
+        ),
+        trust_remote_code=_resolve_config_value(
+            args.trust_remote_code,
+            generation_cfg.get("trust_remote_code"),
+            False,
+        ),
     )
 
 
