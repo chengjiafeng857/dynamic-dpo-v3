@@ -5,14 +5,17 @@ Generate HH single-turn outputs with either transformers or vLLM.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
+import shutil
 from pathlib import Path
 from typing import Any, Iterable, List
 
 import torch
 from datasets import load_dataset
+from huggingface_hub import hf_hub_download, snapshot_download
 from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
 import yaml
 
@@ -39,6 +42,112 @@ def _resolve_config_value(cli_value: Any, config_value: Any, default_value: Any)
     if config_value is not None:
         return config_value
     return default_value
+
+
+def _sanitize_name(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-") or "tokenizer"
+
+
+def _prepare_tokenizer_path(model_name_or_path: str) -> str:
+    tokenizer_config_path: Path | None = None
+    local_path = Path(model_name_or_path).expanduser()
+    tokenizer_source_root: Path | None = None
+    if local_path.exists():
+        tokenizer_source_root = local_path
+        candidate = local_path / "tokenizer_config.json"
+        if candidate.exists():
+            tokenizer_config_path = candidate
+    else:
+        try:
+            tokenizer_config_path = Path(
+                hf_hub_download(model_name_or_path, filename="tokenizer_config.json")
+            )
+            tokenizer_source_root = Path(
+                snapshot_download(
+                    repo_id=model_name_or_path,
+                    allow_patterns=[
+                        "tokenizer*",
+                        "chat_template*",
+                        "special_tokens_map.json",
+                        "added_tokens.json",
+                        "vocab.json",
+                        "merges.txt",
+                        "*.model",
+                        "*.tiktoken",
+                    ],
+                    ignore_patterns=["*.bin", "*.safetensors", "*.pt"],
+                )
+            )
+        except Exception:
+            return model_name_or_path
+
+    if (
+        tokenizer_config_path is None
+        or not tokenizer_config_path.exists()
+        or tokenizer_source_root is None
+    ):
+        return model_name_or_path
+
+    tokenizer_config = json.loads(tokenizer_config_path.read_text(encoding="utf-8"))
+    needs_sanitization = False
+    if isinstance(tokenizer_config.get("extra_special_tokens"), list):
+        tokenizer_config["extra_special_tokens"] = {}
+        needs_sanitization = True
+    if tokenizer_config.get("tokenizer_class") == "TokenizersBackend":
+        tokenizer_config["tokenizer_class"] = "PreTrainedTokenizerFast"
+        needs_sanitization = True
+
+    if not needs_sanitization:
+        return model_name_or_path
+
+    cache_root = Path.home() / ".cache" / "dynamic-dpo-v3" / "tokenizers"
+    cache_key = hashlib.sha256(model_name_or_path.encode("utf-8")).hexdigest()[:12]
+    sanitized_dir = cache_root / f"{_sanitize_name(model_name_or_path)}-{cache_key}"
+    sanitized_config_path = sanitized_dir / "tokenizer_config.json"
+    if sanitized_config_path.exists():
+        return str(sanitized_dir)
+
+    sanitized_dir.mkdir(parents=True, exist_ok=True)
+    for source_path in tokenizer_source_root.rglob("*"):
+        if not source_path.is_file():
+            continue
+        target_path = sanitized_dir / source_path.relative_to(tokenizer_source_root)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, target_path)
+
+    sanitized_config_path.write_text(
+        json.dumps(tokenizer_config, indent=2),
+        encoding="utf-8",
+    )
+    return str(sanitized_dir)
+
+
+def _load_tokenizer(
+    model_name_or_path: str,
+    *,
+    trust_remote_code: bool,
+) -> Any:
+    tokenizer_kwargs: dict[str, Any] = {
+        "use_fast": True,
+        "trust_remote_code": trust_remote_code,
+    }
+    try:
+        return AutoTokenizer.from_pretrained(model_name_or_path, **tokenizer_kwargs)
+    except AttributeError as exc:
+        if "'list' object has no attribute 'keys'" not in str(exc):
+            raise
+        return AutoTokenizer.from_pretrained(
+            model_name_or_path,
+            **tokenizer_kwargs,
+            extra_special_tokens={},
+        )
+    except ValueError as exc:
+        if "Tokenizer class TokenizersBackend does not exist" not in str(exc):
+            raise
+        return AutoTokenizer.from_pretrained(
+            _prepare_tokenizer_path(model_name_or_path),
+            **tokenizer_kwargs,
+        )
 
 
 def _strip_one_leading_newline(text: str) -> str:
@@ -242,7 +351,7 @@ def _generate_outputs_with_vllm(
 
     llm_kwargs = {
         "model": model_name,
-        "tokenizer": model_name,
+        "tokenizer": _prepare_tokenizer_path(model_name),
         "tensor_parallel_size": tensor_parallel_size,
         "trust_remote_code": trust_remote_code,
     }
@@ -382,9 +491,8 @@ def generate_model_outputs(
     if seed is not None and backend != "vllm":
         set_seed(seed)
 
-    tokenizer = AutoTokenizer.from_pretrained(
+    tokenizer = _load_tokenizer(
         model_name,
-        use_fast=True,
         trust_remote_code=trust_remote_code,
     )
     tokenizer.padding_side = "left"
