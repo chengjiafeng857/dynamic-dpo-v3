@@ -379,7 +379,7 @@ def generate_model_outputs(
         print(f"Saved {len(outputs)} chosen outputs to {output_file}")
         return
 
-    if seed is not None:
+    if seed is not None and backend != "vllm":
         set_seed(seed)
 
     tokenizer = AutoTokenizer.from_pretrained(

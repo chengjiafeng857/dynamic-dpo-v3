@@ -290,6 +290,18 @@ def main() -> None:
         help="Override path to DPO outputs JSON.",
     )
     parser.add_argument(
+        "--beta_dpo",
+        type=str,
+        default=None,
+        help="Override path to beta DPO outputs JSON.",
+    )
+    parser.add_argument(
+        "--margin_dpo",
+        type=str,
+        default=None,
+        help="Override path to margin DPO outputs JSON.",
+    )
+    parser.add_argument(
         "--chosen",
         type=str,
         default=None,
@@ -351,11 +363,13 @@ def main() -> None:
         "sft": args.sft or inputs_cfg.get("sft"),
         "og_dpo": args.og_dpo or inputs_cfg.get("og_dpo"),
         "dpo": args.dpo or inputs_cfg.get("dpo"),
+        "beta_dpo": args.beta_dpo or inputs_cfg.get("beta_dpo"),
+        "margin_dpo": args.margin_dpo or inputs_cfg.get("margin_dpo"),
         "chosen": args.chosen or inputs_cfg.get("chosen"),
     }
     candidate_keys = judge_cfg.get("candidate_keys")
     if candidate_keys is None:
-        candidate_keys = ["sft", "og_dpo", "dpo"]
+        candidate_keys = ["sft", "beta_dpo", "margin_dpo"]
     if not isinstance(candidate_keys, list) or not all(
         isinstance(candidate_key, str) for candidate_key in candidate_keys
     ):
