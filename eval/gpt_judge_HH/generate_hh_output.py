@@ -200,9 +200,13 @@ def _resolve_tokenizer_source(
     except AttributeError as exc:
         if "'list' object has no attribute 'keys'" not in str(exc):
             raise
+        else:
+            print(f"[HH-EVAL] Warning: {exc} Attempting to sanitize tokenizer config for {model_name_or_path!r}.")
     except ValueError as exc:
         if "Tokenizer class TokenizersBackend does not exist" not in str(exc):
             raise
+        else:
+            print(f"[HH-EVAL] Warning: {exc} Attempting to sanitize tokenizer config for {model_name_or_path!r}.")
     return _prepare_tokenizer_path(model_name_or_path)
 
 
@@ -319,7 +323,7 @@ def _resolve_eos_token_id(tokenizer: AutoTokenizer) -> int | list[int] | None:
     return eos_token_ids
 
 
-def _generate_outputs_with_vllm(
+def _generate_outputs_vllm(
     model_name: str,
     prompts: list[str],
     tokenizer: AutoTokenizer,
@@ -380,7 +384,7 @@ def _generate_outputs_with_vllm(
     ]
 
 
-def _generate_outputs_with_transformers(
+def _generate_outputs_transformers(
     model_name: str,
     prompts: list[str],
     tokenizer: AutoTokenizer,
@@ -563,7 +567,7 @@ def generate_model_outputs(
         _configure_vllm_runtime()
         if device != "cuda":
             raise ValueError("backend=vllm currently requires --device cuda.")
-        generated_texts = _generate_outputs_with_vllm(
+        generated_texts = _generate_outputs_vllm(
             model_name=model_name,
             prompts=prompts,
             tokenizer=tokenizer,
@@ -577,7 +581,7 @@ def generate_model_outputs(
             stop_token_ids=stop_token_ids,
         )
     else:
-        generated_texts = _generate_outputs_with_transformers(
+        generated_texts = _generate_outputs_transformers(
             model_name=model_name,
             prompts=prompts,
             tokenizer=tokenizer,
