@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import multiprocessing as mp
 import os
 import re
 import shutil
@@ -42,6 +43,13 @@ def _resolve_config_value(cli_value: Any, config_value: Any, default_value: Any)
     if config_value is not None:
         return config_value
     return default_value
+
+
+def _configure_vllm_runtime() -> None:
+    os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+    current_method = mp.get_start_method(allow_none=True)
+    if current_method != "spawn":
+        mp.set_start_method("spawn", force=True)
 
 
 def _sanitize_name(value: str) -> str:
@@ -342,6 +350,8 @@ def _generate_outputs_with_vllm(
     gpu_memory_utilization: float | None,
     trust_remote_code: bool,
 ) -> list[str]:
+    _configure_vllm_runtime()
+
     try:
         from vllm import LLM, SamplingParams
     except ImportError as exc:
@@ -517,6 +527,7 @@ def generate_model_outputs(
         print("[HH-EVAL] End sample formatted prompt")
 
     if backend == "vllm":
+        _configure_vllm_runtime()
         if device != "cuda":
             raise ValueError("backend=vllm currently requires --device cuda.")
         generated_texts = _generate_outputs_with_vllm(
