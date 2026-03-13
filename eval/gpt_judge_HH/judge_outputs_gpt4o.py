@@ -179,7 +179,13 @@ def _record_count(counts: dict[str, int], winner_key: str | None) -> None:
 def _summarize(counts: dict[str, int], total: int) -> dict[str, Any]:
     if total == 0:
         return {"total": 0, "counts": counts, "win_rates": {}}
-    win_rates = {key: value / total for key, value in counts.items()}
+    non_tie_total = total - counts.get("TIE", 0)
+    if non_tie_total <= 0:
+        win_rates = {key: 0.0 for key in counts if key != "TIE"}
+    else:
+        win_rates = {
+            key: value / non_tie_total for key, value in counts.items() if key != "TIE"
+        }
     return {"total": total, "counts": counts, "win_rates": win_rates}
 
 
