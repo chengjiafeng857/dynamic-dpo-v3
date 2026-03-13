@@ -5,7 +5,7 @@ dataset:
   split: "test"
   # true: keep only one user turn followed by one assistant turn.
   # false: keep multi-turn prompts and generate from the full conversation history.
-  single_turn_only: true
+  single_turn_only: false
   max_instances: null
 
 models:
@@ -70,13 +70,10 @@ gpt4_oracle:
     Winner: <"A" or "B" or "TIE">
 
 output:
-  results_file: "outputs/gpt_judge_HH/chosen_vs_sft.jsonl"
-  summary_file: "outputs/gpt_judge_HH/chosen_vs_sft_summary.json"
+  results_file: "outputs/gpt_judge_HH/chosen_vs_margin_dpo.jsonl"
+  summary_file: "outputs/gpt_judge_HH/chosen_vs_margin_dpo_summary.json"
 
 judge:
-  # The judge script supports at most three candidates. For pairwise chosen-vs-model
-  # runs, switch the second key between "sft", "beta_dpo", and "margin_dpo".
   candidate_keys:
     - "chosen"
-    - "beta_dpo"
-
+    - "margin_dpo"

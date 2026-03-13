@@ -36,10 +36,10 @@ generation:
   trust_remote_code: false
 
 inputs:
-  sft: "outputs/gpt_judge_HH/sft_output_hh.json"
-  beta_dpo: "outputs/gpt_judge_HH/beta_dpo_output_hh.json"
-  margin_dpo: "outputs/gpt_judge_HH/margin_dpo_output_hh.json"
-  chosen: "outputs/gpt_judge_HH/chosen_output_hh.json"
+  sft: "outputs/gpt_judge_HH-single-turn/sft_output_hh.json"
+  beta_dpo: "outputs/gpt_judge_HH-single-turn/beta_dpo_output_hh.json"
+  margin_dpo: "outputs/gpt_judge_HH-single-turn/margin_dpo_output_hh.json"
+  chosen: "outputs/gpt_judge_HH-single-turn/chosen_output_hh.json"
 
 gpt4_oracle:
   model: "gpt-4o-2024-08-06"
@@ -70,13 +70,10 @@ gpt4_oracle:
     Winner: <"A" or "B" or "TIE">
 
 output:
-  results_file: "outputs/gpt_judge_HH/chosen_vs_sft.jsonl"
-  summary_file: "outputs/gpt_judge_HH/chosen_vs_sft_summary.json"
+  results_file: "outputs/gpt_judge_HH-single-turn/chosen_vs_margin_dpo.jsonl"
+  summary_file: "outputs/gpt_judge_HH-single-turn/chosen_vs_margin_dpo_summary.json"
 
 judge:
-  # The judge script supports at most three candidates. For pairwise chosen-vs-model
-  # runs, switch the second key between "sft", "beta_dpo", and "margin_dpo".
   candidate_keys:
     - "chosen"
-    - "beta_dpo"
-
+    - "margin_dpo"
