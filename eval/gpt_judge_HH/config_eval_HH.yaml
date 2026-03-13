@@ -3,6 +3,9 @@ dataset:
   # Switch between "helpful-base" and "harmless-base".
   data_dir: "helpful-base"
   split: "test"
+  # true: keep only one user turn followed by one assistant turn.
+  # false: keep multi-turn prompts and generate from the full conversation history.
+  single_turn_only: true
   max_instances: null
 
 models:

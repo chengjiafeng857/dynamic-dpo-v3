@@ -15,20 +15,24 @@ from pathlib import Path
 from typing import Any, Iterable, List
 
 import torch
-from datasets import load_dataset
 from huggingface_hub import hf_hub_download, snapshot_download
 from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
 import yaml
-
-TAG_RE = re.compile(r"\n\n(Human|Assistant): ?")
+from eval.gpt_judge_HH.data_utils import (
+    load_hh_chosen_outputs,
+    load_hh_eval_examples,
+    render_hh_prompt,
+)
 
 
 def _load_config(path: str | Path) -> dict[str, Any]:
+    """Load the HH eval YAML config from disk."""
     with Path(path).open("r", encoding="utf-8") as handle:
         return yaml.safe_load(handle) or {}
 
 
 def _parse_bool_arg(value: str) -> bool:
+    """Parse a CLI boolean flag from common true/false strings."""
     lowered = str(value).strip().lower()
     if lowered in {"1", "true", "yes", "y"}:
         return True
@@ -38,6 +42,7 @@ def _parse_bool_arg(value: str) -> bool:
 
 
 def _resolve_config_value(cli_value: Any, config_value: Any, default_value: Any) -> Any:
+    """Resolve a setting with CLI overrides taking priority over config and defaults."""
     if cli_value is not None:
         return cli_value
     if config_value is not None:
@@ -46,6 +51,7 @@ def _resolve_config_value(cli_value: Any, config_value: Any, default_value: Any)
 
 
 def _configure_vllm_runtime() -> None:
+    """Force spawn-based multiprocessing for vLLM worker processes."""
     os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
     current_method = mp.get_start_method(allow_none=True)
     if current_method != "spawn":
@@ -53,10 +59,12 @@ def _configure_vllm_runtime() -> None:
 
 
 def _sanitize_name(value: str) -> str:
+    """Convert a model id into a filesystem-safe cache directory name."""
     return re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-") or "tokenizer"
 
 
 def _prepare_tokenizer_path(model_name_or_path: str) -> str:
+    """Return a tokenizer path, sanitizing incompatible tokenizer configs if needed."""
     tokenizer_config_path: Path | None = None
     local_path = Path(model_name_or_path).expanduser()
     tokenizer_source_root: Path | None = None
@@ -135,6 +143,7 @@ def _load_tokenizer(
     *,
     trust_remote_code: bool,
 ) -> Any:
+    """Load a tokenizer with repo-specific fallbacks for broken tokenizer metadata."""
     tokenizer_kwargs: dict[str, Any] = {
         "use_fast": True,
         "trust_remote_code": trust_remote_code,
@@ -158,111 +167,53 @@ def _load_tokenizer(
         )
 
 
-def _strip_one_leading_newline(text: str) -> str:
-    return text[1:] if text.startswith("\n") else text
-
-
-def _parse_hh_to_messages(text: str) -> list[dict]:
-    text = str(text).replace("\r\n", "\n").replace("\r", "\n")
-    if not text.startswith("\n\nHuman:") and not text.startswith("\n\nAssistant:"):
-        text = "\n\n" + text
-
-    parts = TAG_RE.split(text)
-    messages = []
-    for i in range(1, len(parts), 2):
-        role_tag = parts[i]
-        content = parts[i + 1] if i + 1 < len(parts) else ""
-        content = _strip_one_leading_newline(content).strip()
-        if not content:
-            continue
-        role = "user" if role_tag == "Human" else "assistant"
-        messages.append({"role": role, "content": content})
-    return messages
-
-
-def _extract_single_turn_instruction(text: str) -> str | None:
-    messages = _parse_hh_to_messages(text)
-    if len(messages) != 2:
-        return None
-    if messages[0]["role"] != "user" or messages[1]["role"] != "assistant":
-        return None
-    return messages[0]["content"]
-
-
-def _extract_single_turn_pair(text: str) -> tuple[str, str] | None:
-    messages = _parse_hh_to_messages(text)
-    if len(messages) != 2:
-        return None
-    if messages[0]["role"] != "user" or messages[1]["role"] != "assistant":
-        return None
-    return messages[0]["content"], messages[1]["content"]
-
-
-def load_hh_single_turn_instructions(
-    repo_id: str = "Anthropic/hh-rlhf",
-    split: str = "test",
-    data_dir: str | None = None,
-) -> List[str]:
-    dataset = load_dataset(repo_id, data_dir=data_dir, split=split)
-    instructions: list[str] = []
-    for row in dataset:
-        text = row.get("chosen") or row.get("prompt") or row.get("text")
-        if text is None:
-            continue
-        instruction = _extract_single_turn_instruction(text)
-        if instruction is None:
-            continue
-        instructions.append(instruction)
-    return instructions
-
-
-def load_hh_single_turn_chosen_outputs(
-    repo_id: str = "Anthropic/hh-rlhf",
-    split: str = "test",
-    data_dir: str | None = None,
-) -> list[dict[str, str]]:
-    dataset = load_dataset(repo_id, data_dir=data_dir, split=split)
-    rows: list[dict[str, str]] = []
-    for row in dataset:
-        chosen = row.get("chosen")
-        if chosen is None:
-            continue
-        pair = _extract_single_turn_pair(chosen)
-        if pair is None:
-            continue
-        instruction, output = pair
-        rows.append(
-            {
-                "instruction": instruction,
-                "output": output,
-                "generator": f"{repo_id}:{split}:chosen",
-            }
-        )
-    return rows
+def _resolve_tokenizer_source(
+    model_name_or_path: str,
+    *,
+    trust_remote_code: bool,
+) -> str:
+    """Return the original tokenizer source unless direct loading fails."""
+    tokenizer_kwargs: dict[str, Any] = {
+        "use_fast": True,
+        "trust_remote_code": trust_remote_code,
+    }
+    try:
+        AutoTokenizer.from_pretrained(model_name_or_path, **tokenizer_kwargs)
+        return model_name_or_path
+    except AttributeError as exc:
+        if "'list' object has no attribute 'keys'" not in str(exc):
+            raise
+    except ValueError as exc:
+        if "Tokenizer class TokenizersBackend does not exist" not in str(exc):
+            raise
+    return _prepare_tokenizer_path(model_name_or_path)
 
 
 def _format_prompt(
-    tokenizer: AutoTokenizer, instruction: str, apply_chat_template: bool
+    tokenizer: AutoTokenizer,
+    prompt_messages: list[dict[str, str]],
+    apply_chat_template: bool,
 ) -> str:
-    if (
-        apply_chat_template
-        and getattr(tokenizer, "apply_chat_template", None)
-        and tokenizer.chat_template
-    ):
-        messages = [{"role": "user", "content": instruction}]
+    """Render prompt messages into the exact text sent to the generation backend."""
+    if apply_chat_template:
+        if not getattr(tokenizer, "apply_chat_template", None) or not getattr(
+            tokenizer, "chat_template", None
+        ):
+            raise ValueError(
+                "apply_chat_template=True but tokenizer.chat_template is unavailable."
+            )
         return tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+            prompt_messages, tokenize=False, add_generation_prompt=True
         )
+    rendered_prompt = render_hh_prompt(prompt_messages)
     if not apply_chat_template:
         bos_token = tokenizer.bos_token or ""
-        return f"{bos_token}{instruction}"
-    return (
-        "<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n"
-        f"{instruction}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
-    )
+        return f"{bos_token}{rendered_prompt}"
+    return rendered_prompt
 
 
 def _resolve_dtype(device: str) -> torch.dtype:
+    """Choose a torch dtype for the requested device."""
     if device == "cuda":
         if torch.cuda.is_bf16_supported():
             return torch.bfloat16
@@ -273,6 +224,7 @@ def _resolve_dtype(device: str) -> torch.dtype:
 
 
 def _resolve_device(device: str) -> str:
+    """Resolve the requested device against the local runtime capabilities."""
     if device == "cuda" and torch.cuda.is_available():
         return "cuda"
     if device == "mps" and torch.backends.mps.is_available():
@@ -281,11 +233,13 @@ def _resolve_device(device: str) -> str:
 
 
 def _batched(iterable: List[str], batch_size: int) -> Iterable[List[str]]:
+    """Yield fixed-size prompt batches while preserving input order."""
     for i in range(0, len(iterable), batch_size):
         yield iterable[i : i + batch_size]
 
 
 def _lookup_token_id(tokenizer: AutoTokenizer, token: str) -> int | None:
+    """Look up a token id across the tokenizer vocab and special tokens, for stop token resolution."""
     vocab = tokenizer.get_vocab()
     if token in vocab:
         return vocab[token]
@@ -298,6 +252,7 @@ def _lookup_token_id(tokenizer: AutoTokenizer, token: str) -> int | None:
 
 
 def _resolve_eos_token_id(tokenizer: AutoTokenizer) -> int | list[int] | None:
+    """Resolve EOS and end-of-turn token ids for generation stopping."""
     eos_token_ids: list[int] = []
     if tokenizer.eos_token_id is not None:
         eos_token_ids.append(tokenizer.eos_token_id)
@@ -351,6 +306,7 @@ def _generate_outputs_with_vllm(
     trust_remote_code: bool,
     stop_token_ids: list[int] | None,
 ) -> list[str]:
+    """Generate responses with vLLM for a list of rendered prompts."""
     _configure_vllm_runtime()
 
     try:
@@ -362,7 +318,10 @@ def _generate_outputs_with_vllm(
 
     llm_kwargs = {
         "model": model_name,
-        "tokenizer": _prepare_tokenizer_path(model_name),
+        "tokenizer": _resolve_tokenizer_source(
+            model_name,
+            trust_remote_code=trust_remote_code,
+        ),
         "tensor_parallel_size": tensor_parallel_size,
         "trust_remote_code": trust_remote_code,
     }
@@ -407,6 +366,7 @@ def _generate_outputs_with_transformers(
     max_input_tokens: int,
     stop_token_ids: list[int] | None,
 ) -> list[str]:
+    """Generate responses with transformers for a list of rendered prompts."""
     resolved_device = _resolve_device(device)
     dtype = _resolve_dtype(resolved_device)
 
@@ -485,6 +445,7 @@ def generate_model_outputs(
     dataset_repo: str = "Anthropic/hh-rlhf",
     dataset_split: str = "test",
     dataset_data_dir: str | None = None,
+    single_turn_only: bool = True,
     apply_chat_template: bool = True,
     extract_chosen: bool = False,
     backend: str = "transformers",
@@ -493,15 +454,17 @@ def generate_model_outputs(
     trust_remote_code: bool = False,
     stop_token_ids: list[int] | None = None,
 ) -> None:
+    """Run HH generation or chosen-output export for the configured model and split."""
     output_dir = os.path.dirname(output_file)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
 
     if extract_chosen:
-        outputs = load_hh_single_turn_chosen_outputs(
+        outputs = load_hh_chosen_outputs(
             repo_id=dataset_repo,
             split=dataset_split,
             data_dir=dataset_data_dir,
+            single_turn_only=single_turn_only,
         )
         if max_instances is not None:
             outputs = outputs[:max_instances]
@@ -521,18 +484,38 @@ def generate_model_outputs(
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    instructions = load_hh_single_turn_instructions(
+    examples = load_hh_eval_examples(
         repo_id=dataset_repo,
         split=dataset_split,
         data_dir=dataset_data_dir,
+        single_turn_only=single_turn_only,
     )
     if max_instances is not None:
-        instructions = instructions[:max_instances]
+        examples = examples[:max_instances]
 
-    prompts = [
-        _format_prompt(tokenizer, instruction, apply_chat_template)
-        for instruction in instructions
-    ]
+    instructions = [str(example["instruction"]) for example in examples]
+
+    try:
+        prompts = [
+            _format_prompt(
+                tokenizer,
+                list(example["prompt_messages"]),
+                apply_chat_template,
+            )
+            for example in examples
+        ]
+    except ValueError as exc:
+        if not apply_chat_template:
+            raise
+        print(f"[HH-EVAL] {exc} Falling back to raw prompt formatting.")
+        prompts = [
+            _format_prompt(
+                tokenizer,
+                list(example["prompt_messages"]),
+                False,
+            )
+            for example in examples
+        ]
     if prompts:
         print("[HH-EVAL] Sample formatted prompt:")
         print(prompts[0])
@@ -585,6 +568,7 @@ def generate_model_outputs(
 
 
 def main() -> None:
+    """Parse CLI/config settings and launch HH output generation."""
     parser = argparse.ArgumentParser(
         description="Generate outputs for HH single-turn prompts"
     )
@@ -805,6 +789,11 @@ def main() -> None:
             args.dataset_data_dir,
             dataset_cfg.get("data_dir") or dataset_cfg.get("config_name"),
             None,
+        ),
+        single_turn_only=_resolve_config_value(
+            None,
+            dataset_cfg.get("single_turn_only"),
+            True,
         ),
         apply_chat_template=_resolve_config_value(
             args.apply_chat_template,
