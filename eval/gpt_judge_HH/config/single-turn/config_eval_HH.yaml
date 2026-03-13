@@ -12,6 +12,7 @@ models:
   sft: "W-61/hh-helpful-base-llama3-8b-sft"
   beta_dpo: "W-61/hh-helpful-base-llama3-8b-beta-dpo"
   margin_dpo: "W-61/hh-helpful-base-llama3-8b-margin-dpo"
+  # chosen: "W-61/hh-helpful-base-llama3-8b-chosen"
 
 generation:
   model_key: "sft"
@@ -75,5 +76,6 @@ output:
 
 judge:
   candidate_keys:
-    - "chosen"
     - "beta_dpo"
+    - "margin_dpo"
+    - "sft"
