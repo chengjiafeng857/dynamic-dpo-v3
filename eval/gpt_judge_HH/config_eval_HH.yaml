@@ -17,6 +17,8 @@ generation:
   model_key: "sft"
   output_key: "sft"
   backend: "vllm"
+  use_custom_chat_template: false
+  prompt_template: "templates/llama3.txt"
   max_new_tokens: 128
   batch_size: 8
   stop_token_ids:

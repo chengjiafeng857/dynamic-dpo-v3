@@ -50,6 +50,23 @@ def _resolve_config_value(cli_value: Any, config_value: Any, default_value: Any)
     return default_value
 
 
+def _resolve_template_path(template_path: str) -> Path:
+    """Resolve a custom prompt template path relative to this package when needed."""
+    candidate = Path(template_path).expanduser()
+    if candidate.exists():
+        return candidate.resolve()
+    package_relative = (Path(__file__).resolve().parent / template_path).resolve()
+    if package_relative.exists():
+        return package_relative
+    raise ValueError(f"Custom prompt template not found: {template_path}")
+
+
+def _load_custom_prompt_template(template_path: str) -> tuple[Path, str]:
+    """Load custom prompt template text from disk."""
+    resolved_path = _resolve_template_path(template_path)
+    return resolved_path, resolved_path.read_text(encoding="utf-8")
+
+
 def _configure_vllm_runtime() -> None:
     """Force spawn-based multiprocessing for vLLM worker processes."""
     os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
@@ -191,10 +208,19 @@ def _resolve_tokenizer_source(
 
 def _format_prompt(
     tokenizer: AutoTokenizer,
+    instruction: str,
     prompt_messages: list[dict[str, str]],
     apply_chat_template: bool,
+    use_custom_chat_template: bool,
+    custom_prompt_template: str | None,
 ) -> str:
     """Render prompt messages into the exact text sent to the generation backend."""
+    if use_custom_chat_template:
+        if custom_prompt_template is None:
+            raise ValueError(
+                "use_custom_chat_template=True but no custom prompt template was loaded."
+            )
+        return custom_prompt_template.format(instruction=instruction)
     if apply_chat_template:
         if not getattr(tokenizer, "apply_chat_template", None) or not getattr(
             tokenizer, "chat_template", None
@@ -453,6 +479,8 @@ def generate_model_outputs(
     gpu_memory_utilization: float | None = None,
     trust_remote_code: bool = False,
     stop_token_ids: list[int] | None = None,
+    use_custom_chat_template: bool = False,
+    prompt_template_path: str | None = None,
 ) -> None:
     """Run HH generation or chosen-output export for the configured model and split."""
     output_dir = os.path.dirname(output_file)
@@ -484,6 +512,10 @@ def generate_model_outputs(
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    custom_prompt_template: str | None = None
+    if use_custom_chat_template:
+        _, custom_prompt_template = _load_custom_prompt_template(prompt_template_path or "")
+
     examples = load_hh_eval_examples(
         repo_id=dataset_repo,
         split=dataset_split,
@@ -499,20 +531,26 @@ def generate_model_outputs(
         prompts = [
             _format_prompt(
                 tokenizer,
+                str(example["instruction"]),
                 list(example["prompt_messages"]),
                 apply_chat_template,
+                use_custom_chat_template,
+                custom_prompt_template,
             )
             for example in examples
         ]
     except ValueError as exc:
-        if not apply_chat_template:
+        if not apply_chat_template or use_custom_chat_template:
             raise
         print(f"[HH-EVAL] {exc} Falling back to raw prompt formatting.")
         prompts = [
             _format_prompt(
                 tokenizer,
+                str(example["instruction"]),
                 list(example["prompt_messages"]),
                 False,
+                False,
+                None,
             )
             for example in examples
         ]
@@ -555,10 +593,11 @@ def generate_model_outputs(
     outputs = [
         {
             "instruction": instruction,
+            "raw_instruction": prompt,
             "output": text,
             "generator": model_name,
         }
-        for instruction, text in zip(instructions, generated_texts)
+        for instruction, prompt, text in zip(instructions, prompts, generated_texts)
     ]
 
     with open(output_file, "w", encoding="utf-8") as f:
@@ -670,6 +709,18 @@ def main() -> None:
         type=_parse_bool_arg,
         default=None,
         help="Whether to apply the tokenizer chat template (true/false).",
+    )
+    parser.add_argument(
+        "--use_custom_chat_template",
+        type=_parse_bool_arg,
+        default=None,
+        help="Whether to format prompts with a local template file.",
+    )
+    parser.add_argument(
+        "--prompt_template",
+        type=str,
+        default=None,
+        help="Path to a custom prompt template file with an {instruction} placeholder.",
     )
     parser.add_argument(
         "--seed",
@@ -821,6 +872,16 @@ def main() -> None:
             [int(token_id) for token_id in generation_cfg.get("stop_token_ids")]
             if generation_cfg.get("stop_token_ids")
             else None
+        ),
+        use_custom_chat_template=_resolve_config_value(
+            args.use_custom_chat_template,
+            generation_cfg.get("use_custom_chat_template"),
+            False,
+        ),
+        prompt_template_path=_resolve_config_value(
+            args.prompt_template,
+            generation_cfg.get("prompt_template"),
+            None,
         ),
     )
 
