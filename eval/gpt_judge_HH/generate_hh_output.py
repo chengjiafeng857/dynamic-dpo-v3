@@ -349,6 +349,7 @@ def _generate_outputs_with_vllm(
     tensor_parallel_size: int,
     gpu_memory_utilization: float | None,
     trust_remote_code: bool,
+    stop_token_ids: list[int] | None,
 ) -> list[str]:
     _configure_vllm_runtime()
 
@@ -371,17 +372,20 @@ def _generate_outputs_with_vllm(
         llm_kwargs["gpu_memory_utilization"] = gpu_memory_utilization
 
     llm = LLM(**llm_kwargs)
-    stop_token_ids = _resolve_eos_token_id(tokenizer)
     sampling_kwargs = {
         "max_tokens": max_new_tokens,
         "temperature": temperature if temperature > 0 else 0.0,
         "top_p": top_p if temperature > 0 else 1.0,
     }
-    if stop_token_ids is not None:
-        if isinstance(stop_token_ids, int):
-            sampling_kwargs["stop_token_ids"] = [stop_token_ids]
-        else:
-            sampling_kwargs["stop_token_ids"] = list(stop_token_ids)
+    if stop_token_ids:
+        sampling_kwargs["stop_token_ids"] = [int(token_id) for token_id in stop_token_ids]
+    else:
+        resolved_stop_token_ids = _resolve_eos_token_id(tokenizer)
+        if resolved_stop_token_ids is not None:
+            if isinstance(resolved_stop_token_ids, int):
+                sampling_kwargs["stop_token_ids"] = [resolved_stop_token_ids]
+            else:
+                sampling_kwargs["stop_token_ids"] = list(resolved_stop_token_ids)
 
     sampling_params = SamplingParams(**sampling_kwargs)
     outputs = llm.generate(prompts, sampling_params)
@@ -401,10 +405,10 @@ def _generate_outputs_with_transformers(
     temperature: float,
     top_p: float,
     max_input_tokens: int,
+    stop_token_ids: list[int] | None,
 ) -> list[str]:
     resolved_device = _resolve_device(device)
     dtype = _resolve_dtype(resolved_device)
-    eos_token_id = _resolve_eos_token_id(tokenizer)
 
     model_kwargs = {"torch_dtype": dtype}
     if resolved_device == "cuda":
@@ -438,8 +442,15 @@ def _generate_outputs_with_transformers(
             "do_sample": do_sample,
             "pad_token_id": tokenizer.pad_token_id,
         }
-        if eos_token_id is not None:
-            gen_kwargs["eos_token_id"] = eos_token_id
+        if stop_token_ids:
+            eos_token_id = [int(token_id) for token_id in stop_token_ids]
+            gen_kwargs["eos_token_id"] = (
+                eos_token_id if len(eos_token_id) > 1 else eos_token_id[0]
+            )
+        else:
+            resolved_eos_token_id = _resolve_eos_token_id(tokenizer)
+            if resolved_eos_token_id is not None:
+                gen_kwargs["eos_token_id"] = resolved_eos_token_id
         if do_sample:
             gen_kwargs["temperature"] = temperature
             gen_kwargs["top_p"] = top_p
@@ -480,6 +491,7 @@ def generate_model_outputs(
     tensor_parallel_size: int = 1,
     gpu_memory_utilization: float | None = None,
     trust_remote_code: bool = False,
+    stop_token_ids: list[int] | None = None,
 ) -> None:
     output_dir = os.path.dirname(output_file)
     if output_dir:
@@ -541,6 +553,7 @@ def generate_model_outputs(
             tensor_parallel_size=tensor_parallel_size,
             gpu_memory_utilization=gpu_memory_utilization,
             trust_remote_code=trust_remote_code,
+            stop_token_ids=stop_token_ids,
         )
     else:
         generated_texts = _generate_outputs_with_transformers(
@@ -553,6 +566,7 @@ def generate_model_outputs(
             temperature=temperature,
             top_p=top_p,
             max_input_tokens=max_input_tokens,
+            stop_token_ids=stop_token_ids,
         )
 
     outputs = [
@@ -813,6 +827,11 @@ def main() -> None:
             args.trust_remote_code,
             generation_cfg.get("trust_remote_code"),
             False,
+        ),
+        stop_token_ids=(
+            [int(token_id) for token_id in generation_cfg.get("stop_token_ids")]
+            if generation_cfg.get("stop_token_ids")
+            else None
         ),
     )
 

@@ -16,6 +16,9 @@ generation:
   backend: "vllm"
   max_new_tokens: 128
   batch_size: 8
+  stop_token_ids:
+    - 128001
+    - 128009
   device: "cuda"
   temperature: 0.7
   top_p: 0.9
