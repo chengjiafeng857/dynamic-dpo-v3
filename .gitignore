@@ -76,3 +76,4 @@ eval_reference/
 eval/mtbench/questions.jsonl
 eval/arenahard/questions.jsonl
 hf_*/
+eval/output/

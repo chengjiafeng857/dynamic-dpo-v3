@@ -365,14 +365,21 @@ def main() -> None:
     if not isinstance(judge_cfg, dict):
         raise ValueError("judge config must be a mapping.")
 
-    candidate_path_map = {
-        "sft": args.sft or inputs_cfg.get("sft"),
-        "og_dpo": args.og_dpo or inputs_cfg.get("og_dpo"),
-        "dpo": args.dpo or inputs_cfg.get("dpo"),
-        "beta_dpo": args.beta_dpo or inputs_cfg.get("beta_dpo"),
-        "margin_dpo": args.margin_dpo or inputs_cfg.get("margin_dpo"),
-        "chosen": args.chosen or inputs_cfg.get("chosen"),
+    if not isinstance(inputs_cfg, dict):
+        raise ValueError("inputs config must be a mapping.")
+
+    candidate_path_map = dict(inputs_cfg)
+    cli_candidate_overrides = {
+        "sft": args.sft,
+        "og_dpo": args.og_dpo,
+        "dpo": args.dpo,
+        "beta_dpo": args.beta_dpo,
+        "margin_dpo": args.margin_dpo,
+        "chosen": args.chosen,
     }
+    for candidate_key, override_path in cli_candidate_overrides.items():
+        if override_path is not None:
+            candidate_path_map[candidate_key] = override_path
     candidate_keys = judge_cfg.get("candidate_keys")
     if candidate_keys is None:
         candidate_keys = ["sft", "beta_dpo", "margin_dpo"]
