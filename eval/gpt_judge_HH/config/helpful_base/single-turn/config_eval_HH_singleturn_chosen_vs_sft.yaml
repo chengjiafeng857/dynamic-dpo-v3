@@ -5,18 +5,17 @@ dataset:
   split: "test"
   # true: keep only one user turn followed by one assistant turn.
   # false: keep multi-turn prompts and generate from the full conversation history.
-  single_turn_only: false
+  single_turn_only: true
   max_instances: null
 
 models:
   sft: "W-61/hh-helpful-base-llama3-8b-sft"
   beta_dpo: "W-61/hh-helpful-base-llama3-8b-beta-dpo"
   margin_dpo: "W-61/hh-helpful-base-llama3-8b-margin-dpo"
-  e_dpo: "jackf857/Llama-8b-sft-hh-helpful-base-e-dpo"
 
 generation:
-  model_key: "e_dpo"
-  output_key: "e_dpo"
+  model_key: "sft"
+  output_key: "sft"
   backend: "vllm"
   use_custom_chat_template: false
   prompt_template: "templates/llama3.txt"
@@ -37,11 +36,10 @@ generation:
   trust_remote_code: false
 
 inputs:
-  sft: "eval/outputs/gpt_judge_HH/sft_output_hh.json"
-  beta_dpo: "eval/outputs/gpt_judge_HH/beta_dpo_output_hh.json"
-  margin_dpo: "eval/outputs/gpt_judge_HH/margin_dpo_output_hh.json"
-  e_dpo: "eval/outputs/gpt_judge_HH/e_dpo_output_hh_multiturn.json"
-  chosen: "eval/outputs/gpt_judge_HH/chosen_output_hh.json"
+  sft: "outputs/gpt_judge_HH-single-turn/sft_output_hh.json"
+  beta_dpo: "outputs/gpt_judge_HH-single-turn/beta_dpo_output_hh.json"
+  margin_dpo: "outputs/gpt_judge_HH-single-turn/margin_dpo_output_hh.json"
+  chosen: "outputs/gpt_judge_HH-single-turn/chosen_output_hh.json"
 
 gpt4_oracle:
   model: "gpt-4o-2024-08-06"
@@ -72,10 +70,10 @@ gpt4_oracle:
     Winner: <"A" or "B" or "TIE">
 
 output:
-  results_file: "eval/outputs/gpt_judge_HH/chosen_vs_e_dpo.jsonl"
-  summary_file: "eval/outputs/gpt_judge_HH/chosen_vs_e_dpo_summary.json"
+  results_file: "outputs/gpt_judge_HH-single-turn/chosen_vs_sft.jsonl"
+  summary_file: "outputs/gpt_judge_HH-single-turn/chosen_vs_sft_summary.json"
 
 judge:
   candidate_keys:
     - "chosen"
-    - "e_dpo"
+    - "sft"
