@@ -12,6 +12,7 @@ models:
   sft: "W-61/hh-harmless-base-llama3-8b-sft"
   beta_dpo: "W-61/hh-harmless-base-llama3-8b-beta-dpo"
   margin_dpo: "W-61/hh-harmless-base-llama3-8b-margin-dpo"
+  e_dpo: "jackf857/Llama-8b-sft-hh-harmless-base-e-dpo"
 
 generation:
   model_key: "sft"
@@ -36,9 +37,10 @@ generation:
   trust_remote_code: false
 
 inputs:
-  sft: "eval/outputs/gpt_judge_HH/sft_output_hh.json"
-  beta_dpo: "eval/outputs/gpt_judge_HH/beta_dpo_output_hh.json"
-  margin_dpo: "eval/outputs/gpt_judge_HH/margin_dpo_output_hh.json"
+  sft: "eval/outputs/gpt_judge_HH/harmless_base/single_turn/sft_output_hh.json"
+  beta_dpo: "eval/outputs/gpt_judge_HH/harmless_base/single_turn/beta_dpo_output_hh.json"
+  margin_dpo: "eval/outputs/gpt_judge_HH/harmless_base/single_turn/margin_dpo_output_hh.json"
+  e_dpo: "eval/outputs/gpt_judge_HH/harmless_base/single_turn/e_dpo_output_hh_single.json"
   chosen: "eval/outputs/gpt_judge_HH/harmless_base/single_turn/chosen_output_hh.json"
 
 gpt4_oracle:
@@ -70,8 +72,8 @@ gpt4_oracle:
     Winner: <"A" or "B" or "TIE">
 
 output:
-  results_file: "eval/outputs/gpt_judge_HH/chosen_vs_sft.jsonl"
-  summary_file: "eval/outputs/gpt_judge_HH/chosen_vs_sft_summary.json"
+  results_file: "eval/outputs/gpt_judge_HH/harmless_base/single_turn/chosen_vs_sft.jsonl"
+  summary_file: "eval/outputs/gpt_judge_HH/harmless_base/single_turn/chosen_vs_sft_summary.json"
 
 judge:
   # The judge script supports at most three candidates. For pairwise chosen-vs-model
