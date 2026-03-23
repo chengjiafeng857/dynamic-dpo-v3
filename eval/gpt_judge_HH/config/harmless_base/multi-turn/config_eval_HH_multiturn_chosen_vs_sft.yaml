@@ -36,10 +36,10 @@ generation:
   trust_remote_code: false
 
 inputs:
-  sft: "eval/outputs/gpt_judge_HH/sft_output_hh.json"
-  beta_dpo: "eval/outputs/gpt_judge_HH/beta_dpo_output_hh.json"
-  margin_dpo: "eval/outputs/gpt_judge_HH/margin_dpo_output_hh.json"
-  chosen: "eval/outputs/gpt_judge_HH/chosen_output_hh.json"
+  sft: "eval/outputs/gpt_judge_HH/harmless_base/multi_turn/sft_output_hh.json"
+  beta_dpo: "eval/outputs/gpt_judge_HH/harmless_base/multi_turn/beta_dpo_output_hh.json"
+  margin_dpo: "eval/outputs/gpt_judge_HH/harmless_base/multi_turn/margin_dpo_output_hh.json"
+  chosen: "eval/outputs/gpt_judge_HH/harmless_base/multi_turn/chosen_output_hh.json"
 
 gpt4_oracle:
   model: "gpt-4o-2024-08-06"
@@ -70,8 +70,8 @@ gpt4_oracle:
     Winner: <"A" or "B" or "TIE">
 
 output:
-  results_file: "eval/outputs/gpt_judge_HH/chosen_vs_sft.jsonl"
-  summary_file: "eval/outputs/gpt_judge_HH/chosen_vs_sft_summary.json"
+  results_file: "eval/outputs/gpt_judge_HH/harmless_base/multi_turn/chosen_vs_sft.jsonl"
+  summary_file: "eval/outputs/gpt_judge_HH/harmless_base/multi_turn/chosen_vs_sft_summary.json"
 
 judge:
   candidate_keys:

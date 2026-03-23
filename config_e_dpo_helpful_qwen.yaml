@@ -55,5 +55,5 @@ dpo_training:
     state_dict_type: FULL_STATE_DICT
 
 e_dpo:
-  beta: 0.1
+  beta: 0.01
   epsilon: 0.01
