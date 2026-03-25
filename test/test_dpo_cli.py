@@ -182,6 +182,8 @@ class _DummyTrainer:
         self.eval_dataset = kwargs["eval_dataset"]
         self.processing_class = kwargs.get("processing_class")
         self.margin_log_path = kwargs.get("margin_log_path")
+        self.sample_log_path = kwargs.get("sample_log_path")
+        self.log_samples = kwargs.get("log_samples")
         self.train_called = False
         self.saved_path = None
         self.saved_paths = []
@@ -282,6 +284,8 @@ class DPOCliTest(unittest.TestCase):
             "ema_momentum": 0.8,
             "beta_min": 0.05,
             "sync_global_mask": False,
+            "log_samples": 3,
+            "log_dir": "logs/test_beta_samples",
         }
         stdout = io.StringIO()
 
@@ -302,6 +306,8 @@ class DPOCliTest(unittest.TestCase):
         self.assertEqual(trainer.args.ema_momentum, 0.8)
         self.assertEqual(trainer.args.beta_min, 0.05)
         self.assertFalse(trainer.args.sync_global_mask)
+        self.assertEqual(trainer.args.log_samples, 3)
+        self.assertEqual(trainer.args.log_dir, "logs/test_beta_samples")
         self.assertEqual(trainer.args.max_length, 64)
         self.assertEqual(set(trainer.train_dataset.column_names), {"prompt", "chosen", "rejected"})
         self.assertEqual(set(trainer.eval_dataset.column_names), {"prompt", "chosen", "rejected"})
@@ -334,7 +340,11 @@ class DPOCliTest(unittest.TestCase):
 
     def test_main_margin_dpo_passes_margin_log_path_and_standard_dpo_config(self):
         config = _base_dpo_config()
-        config["margin_log"] = {"log_dir": "logs/custom_margins"}
+        config["margin_log"] = {
+            "log_dir": "logs/custom_margins",
+            "sample_log_dir": "logs/custom_margin_samples",
+            "log_samples": 4,
+        }
 
         trainer, _ = self._run_main(
             main_margin_dpo,
@@ -351,6 +361,8 @@ class DPOCliTest(unittest.TestCase):
         self.assertEqual(trainer.saved_path, "tmp_dpo/final")
         self.assertIsInstance(trainer.args, DPOConfig)
         self.assertEqual(trainer.margin_log_path, "logs/custom_margins")
+        self.assertEqual(trainer.sample_log_path, "logs/custom_margin_samples")
+        self.assertEqual(trainer.log_samples, 4)
         self.assertEqual(trainer.args.max_length, 64)
         self.assertEqual(set(trainer.train_dataset.column_names), {"prompt", "chosen", "rejected"})
         self.assertEqual(set(trainer.eval_dataset.column_names), {"prompt", "chosen", "rejected"})

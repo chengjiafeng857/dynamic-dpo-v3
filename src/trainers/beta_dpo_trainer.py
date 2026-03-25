@@ -1,3 +1,5 @@
+import json
+import os
 import torch
 import torch.nn.functional as F
 import torch.distributed as dist
@@ -27,6 +29,9 @@ class BetaDPOConfig(DPOConfig):
     beta_min: float = field(default=1e-3)
     # distributed / reproducibility
     sync_global_mask: bool = field(default=True)
+    # diagnostic logging
+    log_samples: int = field(default=0)
+    log_dir: str = field(default="logs/beta_samples")
 
     def __post_init__(self):
         if not (0.0 < self.rho <= 1.0):
@@ -35,6 +40,8 @@ class BetaDPOConfig(DPOConfig):
             raise ValueError("alpha must be >= 0.")
         if not (0.0 <= self.ema_momentum < 1.0):
             raise ValueError("ema_momentum must be in [0, 1).")
+        if self.log_samples < 0:
+            raise ValueError("log_samples must be >= 0.")
         super().__post_init__()
 
 
@@ -82,6 +89,11 @@ class BetaDPOTrainer(DPOTrainer):
         self.r_gap_mean = torch.zeros((), device=device)
         self.r_gap_std = torch.ones((), device=device)
         self._gap_std_eps = 1e-6
+        self._logged_sample_count = 0
+        self._printed_console_sample = False
+        self._sample_log_path = os.path.join(
+            str(self.args.log_dir), "beta_sample_ids.jsonl"
+        )
 
     def _is_distributed(self) -> bool:
         return dist.is_available() and dist.is_initialized() and self.accelerator.num_processes > 1
@@ -170,6 +182,64 @@ class BetaDPOTrainer(DPOTrainer):
         end = start + local_bsz
         return global_vec[start:end]
 
+    @torch.no_grad()
+    def _maybe_log_sample_ids(
+        self,
+        input_ids: torch.Tensor,
+        shift_labels: torch.Tensor,
+        shift_completion_mask: torch.Tensor,
+    ) -> None:
+        max_logged = int(self.args.log_samples)
+        if max_logged <= 0 or not self.model.training or not self.is_world_process_zero():
+            return
+
+        batch_size = int(input_ids.size(0))
+        if batch_size == 0:
+            return
+
+        if not self._printed_console_sample:
+            random_index = int(torch.randint(0, batch_size, (1,)).item())
+            sample_loss_labels = shift_labels[random_index].masked_fill(
+                shift_completion_mask[random_index] == 0, -100
+            )
+            print(
+                f"[BETA_DPO] random_sample_input_ids={input_ids[random_index].detach().cpu().tolist()}"
+            )
+            print(
+                f"[BETA_DPO] random_sample_labels={shift_labels[random_index].detach().cpu().tolist()}"
+            )
+            print(
+                "[BETA_DPO] random_sample_loss_labels="
+                f"{sample_loss_labels.detach().cpu().tolist()}"
+            )
+            self._printed_console_sample = True
+
+        remaining = max_logged - self._logged_sample_count
+        if remaining <= 0:
+            return
+
+        os.makedirs(str(self.args.log_dir), exist_ok=True)
+        rows_to_log = min(batch_size, remaining)
+        with open(self._sample_log_path, "a", encoding="utf-8") as handle:
+            for batch_index in range(rows_to_log):
+                loss_labels = shift_labels[batch_index].masked_fill(
+                    shift_completion_mask[batch_index] == 0, -100
+                )
+                record = {
+                    "global_step": int(self.state.global_step),
+                    "batch_index": batch_index,
+                    "input_ids": input_ids[batch_index].detach().cpu().tolist(),
+                    "labels": shift_labels[batch_index].detach().cpu().tolist(),
+                    "completion_mask": shift_completion_mask[batch_index]
+                    .detach()
+                    .cpu()
+                    .tolist(),
+                    "loss_labels": loss_labels.detach().cpu().tolist(),
+                }
+                handle.write(json.dumps(record) + "\n")
+
+        self._logged_sample_count += rows_to_log
+
     def _compute_loss(self, model, inputs, return_outputs):
         """
             Core TRL hook. We override it to implement beta-DPO.
@@ -194,6 +264,7 @@ class BetaDPOTrainer(DPOTrainer):
         shift_logits = outputs.logits[..., :-1, :].contiguous()
         shift_labels = input_ids[..., 1:].contiguous()
         shift_completion_mask = completion_mask[..., 1:].contiguous()
+        self._maybe_log_sample_ids(input_ids, shift_labels, shift_completion_mask)
         per_token_logps = selective_log_softmax(shift_logits, shift_labels)
         per_token_logps[shift_completion_mask == 0] = 0.0  # mask out non-completion tokens
 

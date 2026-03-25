@@ -59,3 +59,5 @@ beta_dpo:
   ema_momentum: 0.9
   beta_min: 0.001
   sync_global_mask: true
+  log_samples: 100
+  log_dir: logs/beta_samples

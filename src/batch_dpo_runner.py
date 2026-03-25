@@ -61,6 +61,9 @@ def _build_run_config(
     if trainer_type == "margin":
         margin_cfg = config.setdefault("margin_log", {})
         margin_cfg["log_dir"] = str(Path("logs") / f"{run_name}-margins")
+        margin_cfg["sample_log_dir"] = str(
+            Path("logs") / f"{run_name}-margin-samples"
+        )
 
     return config
 

@@ -466,6 +466,8 @@ def run_beta_dpo_training(config: Dict[str, Any]) -> None:
         ema_momentum=float(beta_cfg.get("ema_momentum", 0.9)),
         beta_min=float(beta_cfg.get("beta_min", 1e-3)),
         sync_global_mask=bool(beta_cfg.get("sync_global_mask", True)),
+        log_samples=int(beta_cfg.get("log_samples", 0)),
+        log_dir=str(beta_cfg.get("log_dir", "logs/beta_samples")),
     )
 
     _maybe_init_wandb(config)
@@ -502,6 +504,8 @@ def run_margin_dpo_training(config: Dict[str, Any]) -> None:
         train_dataset=train_ds,
         eval_dataset=eval_ds,
         margin_log_path=str(margin_cfg.get("log_dir", "logs/margins")),
+        sample_log_path=str(margin_cfg.get("sample_log_dir", "logs/margin_samples")),
+        log_samples=int(margin_cfg.get("log_samples", 0)),
         processing_class=tokenizer,
     )
     _finalize_dpo_training(trainer, config["dpo_training"])

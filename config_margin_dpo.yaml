@@ -54,3 +54,5 @@ dpo_training:
 
 margin_log:
   log_dir: logs/margins
+  sample_log_dir: logs/margin_samples
+  log_samples: 0

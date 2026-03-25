@@ -42,9 +42,25 @@ def log_margin(margin, epoch_dir, epoch, step, JSONL_PATH):
 
 
 class MarginDPOTrainer(DPOTrainer):
-    def __init__(self, margin_log_path="./margin_logs", *args, **kwargs):
+    def __init__(
+        self,
+        margin_log_path="./margin_logs",
+        sample_log_path="logs/margin_samples",
+        log_samples=0,
+        *args,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.margin_log_path = margin_log_path
+        self.sample_log_path = sample_log_path
+        self.log_samples = int(log_samples)
+        if self.log_samples < 0:
+            raise ValueError("log_samples must be >= 0.")
+        self._logged_sample_count = 0
+        self._printed_console_sample = False
+        self._sample_log_jsonl_path = os.path.join(
+            self.sample_log_path, "margin_sample_ids.jsonl"
+        )
         os.makedirs(self.margin_log_path, exist_ok=True)
 
     def _maybe_log_margin(self, margin_tensor: torch.Tensor):
@@ -69,6 +85,63 @@ class MarginDPOTrainer(DPOTrainer):
         jsonl_path = os.path.join(self.margin_log_path, "margins.jsonl")
         log_margin(margin_all, self.margin_log_path, epoch, step=step, JSONL_PATH=jsonl_path)
 
+    @torch.no_grad()
+    def _maybe_log_sample_ids(
+        self,
+        input_ids: torch.Tensor,
+        shift_labels: torch.Tensor,
+        shift_completion_mask: torch.Tensor,
+    ) -> None:
+        if self.log_samples <= 0 or not self.model.training or not self.is_world_process_zero():
+            return
+
+        batch_size = int(input_ids.size(0))
+        if batch_size == 0:
+            return
+
+        if not self._printed_console_sample:
+            random_index = int(torch.randint(0, batch_size, (1,)).item())
+            sample_loss_labels = shift_labels[random_index].masked_fill(
+                shift_completion_mask[random_index] == 0, -100
+            )
+            print(
+                f"[MARGIN_DPO] random_sample_input_ids={input_ids[random_index].detach().cpu().tolist()}"
+            )
+            print(
+                f"[MARGIN_DPO] random_sample_labels={shift_labels[random_index].detach().cpu().tolist()}"
+            )
+            print(
+                "[MARGIN_DPO] random_sample_loss_labels="
+                f"{sample_loss_labels.detach().cpu().tolist()}"
+            )
+            self._printed_console_sample = True
+
+        remaining = self.log_samples - self._logged_sample_count
+        if remaining <= 0:
+            return
+
+        os.makedirs(self.sample_log_path, exist_ok=True)
+        rows_to_log = min(batch_size, remaining)
+        with open(self._sample_log_jsonl_path, "a", encoding="utf-8") as handle:
+            for batch_index in range(rows_to_log):
+                loss_labels = shift_labels[batch_index].masked_fill(
+                    shift_completion_mask[batch_index] == 0, -100
+                )
+                record = {
+                    "global_step": int(self.state.global_step),
+                    "batch_index": batch_index,
+                    "input_ids": input_ids[batch_index].detach().cpu().tolist(),
+                    "labels": shift_labels[batch_index].detach().cpu().tolist(),
+                    "completion_mask": shift_completion_mask[batch_index]
+                    .detach()
+                    .cpu()
+                    .tolist(),
+                    "loss_labels": loss_labels.detach().cpu().tolist(),
+                }
+                handle.write(json.dumps(record) + "\n")
+
+        self._logged_sample_count += rows_to_log
+
     def _compute_loss(self, model, inputs, return_outputs):
         """
         Use trl dpo loss compute pipelines, only get and log margins
@@ -91,6 +164,7 @@ class MarginDPOTrainer(DPOTrainer):
         shift_logits = outputs.logits[..., :-1, :].contiguous()
         shift_labels = input_ids[..., 1:].contiguous()
         shift_completion_mask = completion_mask[..., 1:].contiguous()
+        self._maybe_log_sample_ids(input_ids, shift_labels, shift_completion_mask)
         per_token_logps = selective_log_softmax(shift_logits, shift_labels)
         per_token_logps[shift_completion_mask == 0] = 0.0  # mask out non-completion tokens
 

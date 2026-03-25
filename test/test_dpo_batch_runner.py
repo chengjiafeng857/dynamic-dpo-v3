@@ -120,6 +120,8 @@ def _margin_base_config() -> dict:
         },
         "margin_log": {
             "log_dir": "logs/placeholder",
+            "sample_log_dir": "logs/placeholder-samples",
+            "log_samples": 0,
         },
     }
 
@@ -195,6 +197,10 @@ class DPOBatchRunnerTest(unittest.TestCase):
         self.assertEqual(run_plans[0]["output_dir"], "batch_dpo_outputs/hh-helpful-base-qwen3-8b-beta-dpo")
 
         self.assertEqual(second_cfg["margin_log"]["log_dir"], "logs/hh-helpful-base-qwen3-8b-margin-dpo-margins")
+        self.assertEqual(
+            second_cfg["margin_log"]["sample_log_dir"],
+            "logs/hh-helpful-base-qwen3-8b-margin-dpo-margin-samples",
+        )
         self.assertEqual(last_cfg["policy_name"], "W-61/hh-harmless-base-llama3-8b-sft")
         self.assertEqual(last_cfg["dataset"]["chat_template_name"], "llama3")
         self.assertEqual(
